@@ -99,6 +99,7 @@ DEFAULT_CONFIG: dict = {
         "reserve_cat_pct": 30,    # 变猎豹预留法力 %（日志里实测变猎豹约 27-28%）；0 = 不预留
         "reserve_bear_pct": 30,   # 变熊预留法力 %；0 = 不预留
         "reserve_learn": True,    # 自动测变身实际耗蓝；实测比设置高 → 用 实测+2
+        "reserve_margin_pct": 3,  # v8.42：治疗前算“治疗后法力 ≥ 变身预留 + 这个余量”才放（治疗之触耗蓝按最近实测最贵的算）
         # v8.27 战后治疗：每次战斗结束治疗一次（代替旧的“低于 60% 才人形回血到 90%”）
         "post_enabled": True,     # 开 = 血量 < post_ht_below_pct 按生命之触（治疗之触键），否则 < 100% 按回春术键；满血不治疗
         "post_rejuv_enabled": True,  # v8.36：关 = 战后不放回春术（血量 ≥ post_ht_below_pct 就直接继续打；低于照样生命之触）

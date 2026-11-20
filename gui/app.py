@@ -87,7 +87,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.41")
+        self.title("WowGrinder 熊德自动打怪 v8.42")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -441,6 +441,8 @@ class App(tk.Tk):
         self._field(g, 6, "治疗之触耗蓝约(%)", "heal", "heal_cost_pct", "float", col=3, tip="初始估计，实测后自动更新（默认 20）")
         self._field(g, 7, "buff 耗蓝约(%)", "heal", "buff_cost_pct", "float", col=3, tip="初始估计，实测后自动更新（默认 10）")
         self._field(g, 8, "回春术耗蓝约(%)", "heal", "rejuv_cost_pct", "float", col=3, tip="v8.27 初始估计，实测后自动更新（默认 12）")
+        self._field(g, 9, "变身余量(%)（v8.42）", "heal", "reserve_margin_pct", "float", col=3,
+                    tip="治疗前预计“治疗后法力”要 ≥ 变身预留 + 这个余量才放，保证治完能变回猎豹（默认 3）")
         self._field(g, 1, "战后回血到(%)", "heal", "rest_to_pct", "int", tip="血量低于“脱战低于多少才回血”时，人形回血到此血量")
         self._field(g, 2, "战斗识别方式", "detect", "combat_mode", choices=["template", "color", "none"],
                     tip="template=匹配 combat.png；color=区域内红色比例；none=不识别")

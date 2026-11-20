@@ -253,6 +253,10 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
         self.heal_mana0 = None
         self.rest_mana0 = None
         self.buff_mana0 = None
+        self.cast_peak = None           # v8.42：读条中见过的最高法力（蓝在读完时才扣，读条期间还在回）
+        self.heal_inflight = None       # v8.42：(时间, 法力)：等读条超时就结束了，但治疗之触还在读 → 蓝还没扣
+        self.heal_costs: list[float] = []   # v8.42：这次运行实测的治疗之触耗蓝（取最近几次的最大值）
+        self.shift_wait_noted = False
         self.spin_deg = 0.0             # v8.19 找怪累计转了多少度
         self.spin_due = False
         self.spin_wait_until = -1e9
@@ -786,9 +790,31 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
             return obs.form == self._cform()
         return self.bear_belief
 
+    def _shift_need(self) -> float:
+        """v8.42：变回战斗形态要多少蓝：实测变身耗蓝；没测到 → 预留线。"""
+        form = self._cform()
+        learned = self.mana_cost.get("shift_" + form)
+        if learned:
+            return float(learned)
+        return float(self.cfg["heal"].get("reserve_cat_pct" if form == "cat" else "reserve_bear_pct", 30) or 0)
+
     def _to_bear(self, obs):
         if not self._is_bear(obs):
             key = self._form_key()
+            need = self._shift_need()
+            mana = obs.mana
+            if (key and obs.form == "caster" and need > 0 and mana is not None and 0 < mana < need):
+                # v8.42：蓝不够变身 → 别一直按（按了也只是报错），等回蓝；每 5 秒试一次以防读数不准
+                now = self.clock()
+                if not self.shift_wait_noted:
+                    self.shift_wait_noted = True
+                    self.log(f"💧 法力 {mana:.0f}% 不够变{self._cform_cn()}（约需 {need:.0f}%）→ 等回蓝再变，不连按（每 5 秒试一次）")
+                if now - getattr(self, "shift_try_t", -1e9) < 5.0:
+                    self.bear_belief = True
+                    return
+                self.shift_try_t = now
+            else:
+                self.shift_wait_noted = False
             if key:
                 self._ctx(f"变回{self._cform_cn()}形态（当前形态 {obs.form}）")
                 self.inp.press(key)
@@ -916,6 +942,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
 
     def _cost(self, kind) -> float:
         h = self.cfg["heal"]
+        if kind == "heal" and self.heal_costs:
+            return max(self.heal_costs[-3:])          # v8.42：最近 3 次实测里最贵的那次（保守）
         if kind in self.mana_cost:
             return self.mana_cost[kind]
         if kind == "rejuv":
@@ -929,10 +957,31 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
         if r <= 0 or mana is None or mana <= 0:
             return None
         c = self._cost(kind)
-        if mana - c < r:
+        margin = float(self.cfg["heal"].get("reserve_margin_pct", 3) or 0) if kind in ("heal", "rejuv") else 0.0  # v8.42
+        pend = self._inflight_cost(obs) if kind in ("heal", "rejuv") else 0.0
+        after = mana - pend - c
+        if after < r + margin:
             name = {"heal": "治疗之触", "rejuv": "回春术"}.get(kind, "buff")
-            return f"法力 {mana:.0f}% − {name}约 {c:.0f}% 会低于变{self._cform_cn()}预留 {r:.0f}%"
+            extra = f"，上一个治疗之触还在读、约 {pend:.0f}% 还没扣" if pend else ""
+            return (f"预计{name}后法力 {after:.0f}%（现在 {mana:.0f}% − {name}约 {c:.0f}%{extra}）"
+                    f" < 变{self._cform_cn()}需要 {r + margin:.0f}%（预留 {r:.0f}% + 余量 {margin:.0f}%）")
         return None
+
+    def _inflight_cost(self, obs) -> float:
+        """v8.42：上一个治疗之触按超时结束、但游戏里还在读 → 它的蓝还没扣，算进去。蓝掉了/过了 6 秒 → 已经扣了。"""
+        inf = self.heal_inflight
+        if not inf:
+            return 0.0
+        t0, m0 = inf
+        if self.clock() - t0 > 6.0 or obs.mana is None or (m0 is not None and obs.mana < m0 - 5):
+            self.heal_inflight = None
+            return 0.0
+        return self._cost("heal")
+
+    def _track_cast_peak(self, obs):
+        """v8.42：读条中记下最高法力；实测耗蓝 = 读条中最高 − 读完后（读条期间回的蓝不算进去，以前会测低）。"""
+        if obs.casting and obs.mana is not None and obs.mana > 0:
+            self.cast_peak = obs.mana if self.cast_peak is None else max(self.cast_peak, obs.mana)
 
     def _learn_mana(self, obs):
         """实测变身耗蓝：上一帧人形 → 这一帧猎豹/熊，法力掉了多少。"""
@@ -950,12 +999,19 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
                 self.log(f"🔋 实测变{cn}耗蓝约 {drop:.0f}%（{pm:.0f}% → {mana:.0f}%）；变身预留 = {self._reserve(form):.0f}%")
 
     def _learn_cost(self, kind, before, obs, lo=3, hi=60):
+        peak, self.cast_peak = self.cast_peak, None
         if before is None or obs.mana is None or obs.mana <= 0:
             return
+        if obs.casting:                 # v8.42：还在读 → 蓝还没扣，不测
+            return
+        if kind == "heal" and peak is not None:
+            before = max(before, peak)
         drop = before - obs.mana
         if lo <= drop <= hi:
             old = self.mana_cost.get(kind)
             self.mana_cost[kind] = drop
+            if kind == "heal":
+                self.heal_costs = (self.heal_costs + [drop])[-5:]
             if old is None or abs(old - drop) >= 3:
                 self.dlog(f"[法力] 实测{ {'heal': '治疗之触', 'rejuv': '回春术'}.get(kind, 'buff') }耗蓝约 {drop:.0f}%")
 
@@ -1066,6 +1122,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
         self._calibrate_turn(obs, now)
         self._fix_attacker_kind(obs)
         self._learn_mana(obs)
+        self._track_cast_peak(obs)
         self._area_tick(obs, now)
 
         self._break_clock(obs, now)
@@ -1121,6 +1178,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
                 short = self._mana_short(obs, "heal") if left <= 0 else None
                 if short:
                     # v8.17：治疗会把法力用到预留线以下 → 不治疗，留着蓝变身，继续打
+                    self._warn("healreserve_v842", f"💧 留蓝变{self._cform_cn()}：{short} → 不再治疗", 5.0)
                     self._event("heal_reserve", f"血量 {hp:.0f}% 但法力要留给变身")
                     self._warn("healreserve", f"🩹 不治疗：血量 {hp:.0f}% < 治疗线 {line:.0f}%，但{short} → 留着蓝，继续打", 5.0)
                     corpse_ok = self._corpse_on() and getattr(obs, "death_info", False)   # v8.33：开着跑尸 → 不响
@@ -2881,6 +2939,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
                 self.log(f"🩹 治疗之触开始读条（按了 {self.heal_presses} 次，用时 {now - self.heal_t0:.1f} 秒）")
                 self.heal_phase, self.heal_phase_t = "wait", now
                 self.heal_mana0 = obs.mana
+                self.cast_peak = obs.mana
                 return
             if self.heal_presses >= 1 and obs.casting is None:   # 截图模式：不知道有没有读条，按时间等
                 self.heal_phase, self.heal_phase_t = "wait", self.heal_last_press
@@ -2909,6 +2968,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
                 return
             if obs.casting:
                 self.log(f"⚠️ 读条超过 {cast_s + 2:.0f} 秒还在读，先结束")
+                self.heal_inflight = (now, obs.mana)    # v8.42：游戏里还在读，蓝还没扣
             elif el < 0.8:
                 self.log(f"⚠️ 读条只持续了 {el:.1f} 秒（可能被打断）")
             return self._heal_done(obs, now, True)
@@ -2959,7 +3019,9 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
         if obs.mana is not None and obs.mana < min_mana:
             why = f"法力 {obs.mana:.0f}% < {min_mana:.0f}%"
         elif self._mana_short(obs, "heal"):
-            why = self._mana_short(obs, "heal") + "（留着蓝变身）"
+            short = self._mana_short(obs, "heal")
+            self.log(f"💧 留蓝变{self._cform_cn()}：{short} → 不再治疗")
+            why = short + "（留着蓝变身）"
         elif chain >= int(h.get("heal_chain_max", 6)):
             why = f"已经连放 {chain} 个（上限 {h.get('heal_chain_max', 6)}）"
         elif not ok:
@@ -3201,6 +3263,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
             if not self.rest_seen_cast:
                 self.dlog(f"[回血] 治疗之触读条中（按了 {self.rest_presses} 次）")
                 self.rest_mana0 = obs.mana
+                self.cast_peak = obs.mana
             self.rest_seen_cast = True
             self.rest_presses = 0
             self.rest_next_cast = now + 0.3     # 读完 0.3 秒后可以再放
