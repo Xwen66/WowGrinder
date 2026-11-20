@@ -362,15 +362,16 @@ class ErrorRetry(unittest.TestCase):
 
     def test_retries_then_continues(self):
         logs, n = self.run_bot(3)
-        self.assertEqual(sum("2 秒后继续" in m for m in logs), 3)
+        self.assertEqual(sum("秒后继续" in m for m in logs), 3)
         self.assertFalse(any("出错停止" in m for m in logs))
         self.assertEqual(n, 4)
 
     def test_stops_after_too_many(self):
+        """v8.43：出错永远重试，100 次也不停。"""
         logs, n = self.run_bot(100)
-        self.assertEqual(sum("2 秒后继续" in m for m in logs), 5)
-        self.assertTrue(any("出错停止" in m and "超过 5 次" in m for m in logs))
-        self.assertEqual(n, 6)
+        self.assertEqual(sum("秒后继续" in m for m in logs), 100)
+        self.assertFalse(any("出错停止" in m for m in logs))
+        self.assertEqual(n, 101)
 
 
 # 只跑本文件新加的测试（继承来的旧测试在原文件里已经跑过）

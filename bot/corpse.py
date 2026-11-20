@@ -70,7 +70,7 @@ class CorpseRunMixin:
             if not self._corpse_on():
                 return False
             if not getattr(obs, "death_info", False):
-                self._warn("crold", "⚠️ 死了，但插件不是 v0.12（没有尸体坐标）→ 不能自动跑尸，照旧停止。"
+                self._warn("crold", "⚠️ 死了，但插件不是 v0.12（没有尸体坐标）→ 不能自动跑尸，等活过来（v8.43 起不停止）。"
                                     "把新插件复制到游戏 AddOns 文件夹，游戏里 /reload", 30)
                 return False
             self._cr_begin(obs, now)

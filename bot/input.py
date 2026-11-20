@@ -34,7 +34,7 @@ class InputController:
         if self._pg is None:
             import pyautogui
             pyautogui.PAUSE = 0
-            pyautogui.FAILSAFE = bool(self.cfg["safety"].get("failsafe", True))
+            pyautogui.FAILSAFE = False      # v8.43：去掉“鼠标甩到左上角急停”（只用 F12 / 停止按钮 / 关窗口停）
             self._pg = pyautogui
         return self._pg
 

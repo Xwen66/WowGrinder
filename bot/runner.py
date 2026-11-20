@@ -11,6 +11,11 @@ from .detector import Detector
 from .input import InputController, StopRequested
 from .logfile import SessionLog, ShotSaver, obs_snapshot
 from .state_machine import Grinder, State
+
+
+def err_backoff(streak: int) -> float:
+    """v8.43：连续出错第 n 次等多久：2、4、8、16、30、30…秒（1 分钟没出错就从 2 秒重新算）。"""
+    return float(min(30.0, 2.0 * (2 ** max(0, streak - 1))))
 from .window import game_in_foreground
 
 
@@ -130,31 +135,36 @@ class BotRunner:
         warned_bg = False
         last_source = None
         last_gamma = ""
-        err_times: list[float] = []         # v8.38：最近出错的时间（出错自动重试）
+        err_streak, err_last = 0, -1e9      # v8.43：出错永远重试；连续出错等待 2→4→8→16→30 秒，1 分钟没出错清零
         try:
             delay = int(cfg["misc"].get("capture_delay_s", 3))
             for i in range(delay, 0, -1):
                 log(f"{i} 秒后开始，请切到游戏窗口…")
                 inp.sleep(1)
             log("开始打怪")
-            if (cfg["keys"].get("clear_target") or "").strip().lower() == "f3":
-                log("ℹ️ 清除目标键 = F3：请确认游戏里有 /cleartarget 宏放在 F3（v8.3 起不再用 Esc，Esc 没目标时会打开游戏菜单）")
-            from .config import cat_missing, is_cat
-            if is_cat(cfg):
-                cm = cat_missing(cfg)
-                kk = cfg["keys"]
-                log("🐆 战斗形态 = 猎豹：形态键「%s」爪击「%s」斜掠「%s」终结技「%s」潜行「%s」开怪键「%s」（猎豹和熊一样）猛虎之怒「%s」"
-                    % tuple(kk.get(n) or "-" for n in ("cat_form", "cat_builder", "cat_rake", "cat_finisher",
-                                                        "cat_prowl", "attack", "cat_tigers_fury"))
-                    + "（连击点/能量要插件 v0.9，读不到就按次数轮转）")
-                if cm:
-                    log("⚠️ 猎豹模式缺少：" + "、".join(cm) + "（“按键”页填好；缺的键不会按）")
-            ta = (cfg["keys"].get("target_attacker") or "").strip().lower()
-            if ta:
-                clash = [n for n, v in cfg["keys"].items()
-                         if n != "target_attacker" and isinstance(v, str) and v.strip().lower() == ta]
-                log(f"ℹ️ 选择攻击我的怪键 = {ta.upper()}：请确认游戏里有宏（/cleartarget 换行 /targetenemy）放在 {ta.upper()}"
-                    + (f"；⚠️ 这个键和 {', '.join(clash)} 重复了" if clash else ""))
+            try:   # v8.43：启动时的提示出错也不影响打怪
+                if (cfg["keys"].get("clear_target") or "").strip().lower() == "f3":
+                    log("ℹ️ 清除目标键 = F3：请确认游戏里有 /cleartarget 宏放在 F3（v8.3 起不再用 Esc，Esc 没目标时会打开游戏菜单）")
+                from .config import cat_missing, is_cat
+                if is_cat(cfg):
+                    cm = cat_missing(cfg)
+                    kk = cfg["keys"]
+                    log("🐆 战斗形态 = 猎豹：形态键「%s」爪击「%s」斜掠「%s」终结技「%s」潜行「%s」开怪键「%s」（猎豹和熊一样）猛虎之怒「%s」"
+                        % tuple(kk.get(n) or "-" for n in ("cat_form", "cat_builder", "cat_rake", "cat_finisher",
+                                                            "cat_prowl", "attack", "cat_tigers_fury"))
+                        + "（连击点/能量要插件 v0.9，读不到就按次数轮转）")
+                    if cm:
+                        log("⚠️ 猎豹模式缺少：" + "、".join(cm) + "（“按键”页填好；缺的键不会按）")
+                ta = (cfg["keys"].get("target_attacker") or "").strip().lower()
+                if ta:
+                    clash = [n for n, v in cfg["keys"].items()
+                             if n != "target_attacker" and isinstance(v, str) and v.strip().lower() == ta]
+                    log(f"ℹ️ 选择攻击我的怪键 = {ta.upper()}：请确认游戏里有宏（/cleartarget 换行 /targetenemy）放在 {ta.upper()}"
+                        + (f"；⚠️ 这个键和 {', '.join(clash)} 重复了" if clash else ""))
+            except StopRequested:
+                raise
+            except Exception as e:  # noqa: BLE001
+                log(f"⚠️ 启动提示出错（不影响打怪）：{type(e).__name__}: {e}")
             while not self.stop_event.is_set():
                 try:
                     if self.paused.is_set():
@@ -232,15 +242,17 @@ class BotRunner:
                     inp.sleep(tick * random.uniform(0.8, 1.3))
                 except StopRequested:
                     raise
-                except Exception as e:  # noqa: BLE001  v8.38：出错不马上停 → 记日志、松开按键、等 2 秒继续
-                    if type(e).__name__ == "FailSafeException":
-                        raise                       # 鼠标甩到角落 = 急停，照旧停止
-                    import traceback
+                except Exception as e:  # noqa: BLE001  v8.43：出错永远不停 → 记日志、松开按键、等一会儿继续
                     t_err = time.monotonic()
-                    err_win = float(cfg["safety"].get("error_retry_window_s", 600))
-                    err_max = int(cfg["safety"].get("error_retry_max", 5))
-                    err_times = [t for t in err_times if t_err - t < err_win] + [t_err]
-                    dlog(traceback.format_exc())
+                    err_streak = err_streak + 1 if t_err - err_last < 60.0 else 1
+                    err_last = t_err
+                    wait = err_backoff(err_streak)
+                    try:
+                        import traceback
+                        dlog(traceback.format_exc())
+                        log(f"⚠️ 出错（连续第 {err_streak} 次）：{type(e).__name__}: {e} → {wait:.0f} 秒后继续（不会停止）")
+                    except Exception:  # noqa: BLE001
+                        pass
                     try:
                         g._stop_walk()
                         inp.release_all()
@@ -248,21 +260,14 @@ class BotRunner:
                         raise
                     except Exception:  # noqa: BLE001
                         pass
-                    if len(err_times) > err_max:
-                        log(f"⛔ 出错停止：{err_win / 60:.0f} 分钟内出错 {len(err_times)} 次（超过 {err_max} 次）。最后一次 {type(e).__name__}: {e}")
-                        break
-                    log(f"⚠️ 出错（{err_win / 60:.0f} 分钟内第 {len(err_times)} 次，超过 {err_max} 次才停）：{type(e).__name__}: {e} → 2 秒后继续")
-                    inp.sleep(2.0)
+                    inp.sleep(wait)
         except StopRequested:
             pass
         except Exception as e:  # 包括 pyautogui.FailSafeException（鼠标甩到左上角）
             name = type(e).__name__
-            if name == "FailSafeException":
-                log("⛔ 鼠标移到屏幕角落，触发 pyautogui 急停")
-            else:
-                import traceback
-                log(f"⛔ 出错停止：{name}: {e}")
-                dlog(traceback.format_exc())
+            import traceback
+            log(f"⛔ 出错停止（启动阶段/意外）：{name}: {e}")
+            dlog(traceback.format_exc())
         finally:
             inp.release_all()
             if g.state != State.STOPPED:

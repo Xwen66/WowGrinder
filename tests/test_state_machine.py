@@ -285,8 +285,8 @@ class TestApproachCombat(Base):
         self.assertEqual(self.g.fight_heals, 1)
         self.clock.t += 0.5
         self.g.tick(obs(hp=12, thp=70, combat=True, form="bear"))
-        self.assertTrue(self.g.stopped)
-        self.assertIn("治疗过后", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                              # v8.43：不停止，提醒 + 响一下
+        self.assertTrue(any("治疗过后" in m and "不停止" in m for m in self.logs))
         self.assertEqual(self.beeps, [1])
 
     def test_critical_without_heal_heals_first(self):
@@ -309,15 +309,15 @@ class TestApproachCombat(Base):
         self.assertEqual(self.beeps, [1])
 
     def test_stuck_stop_without_recovery(self):
+        """v8.43：补救关着也不停止，只提醒。"""
         self.cfg["recover"]["enabled"] = False
         self.acquire()
         self.g.tick(obs(thp=100, combat=True, form="bear"))
         for _ in range(40):
             self.clock.t += 1
             self.g.tick(obs(thp=100, combat=True, form="bear"))
-            if self.g.stopped:
-                break
-        self.assertIn("没有下降", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)
+        self.assertTrue(any("没有下降" in m and "不停止" in m for m in self.logs))
 
 
 class TestRecovery(Base):
@@ -684,7 +684,7 @@ class TestStationary(Base):
         self.run_heal(hp=25, arange="in")
         self.clock.t += 0.5
         self.g.tick(obs(hp=10, thp=70, arange="in", combat=True, form="bear"))
-        self.assertTrue(self.g.stopped)
+        self.assertFalse(self.g.stopped)                              # v8.43：不停止，照样响
         self.assertEqual(self.beeps, [1])
 
 
@@ -768,15 +768,17 @@ class TestAfterFight(Base):
 
 class TestSafety(Base):
     def test_death(self):
-        self.g.tick(obs(dead=True))
-        self.assertEqual(self.g.state, State.STOPPED)
-        self.assertTrue(self.inp.stop_event.is_set())
+        self.g.tick(obs(dead=True))                                   # v8.43：死了不停止，等待
+        self.assertNotEqual(self.g.state, State.STOPPED)
+        self.assertFalse(self.inp.stop_event.is_set())
+        self.assertTrue(any("死亡" in m and "不停止" in m for m in self.logs))
 
     def test_zero_hp(self):
         self.g.tick(obs(hp=0))
         self.clock.t += 2.5
         self.g.tick(obs(hp=0))
-        self.assertEqual(self.g.state, State.STOPPED)
+        self.assertNotEqual(self.g.state, State.STOPPED)
+        self.assertTrue(self.g.dead_idle)
 
     def test_zero_hp_blip(self):
         self.g.tick(obs(hp=0))

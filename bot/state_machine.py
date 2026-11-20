@@ -237,6 +237,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
         self.cdir = 1                  # v8.33 来回走的方向：+1 = 编号变大，-1 = 编号变小（1→2→3→2→1→2…）
         self.return_block_until = -1e9 # v8.33 回中心卡住（只有 1 个中心）→ 这段时间不再走回去，就地找怪
         self.near_death_noted = False  # v8.33 这场战斗已经写过“血量很危险，继续打”
+        self.dead_idle = False         # v8.43：死了（跑尸关着）→ 不停止，等活过来
         self.travel = False            # 正在从一个中心走去下一个中心（路上看到怪也打）
         self.last_rclick = -1e9        # v8.24 上一次右键时间
         self.rclick_pos = self.rclick_range = None
@@ -334,13 +335,9 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
         self.inp.stop_event.set()
 
     def _stall_stop(self, now) -> bool:
-        """目标血量 stuck_timeout_s 秒没下降。v8.41：只在关闭“战斗补救”时停止（README 一直这么写）；
-        补救开着 → 不停止，写提醒、重新计时，交给补救/换怪逻辑（以前这里直接停 bot，停了以后被怪打死也不会跑尸）。"""
+        """目标血量 stuck_timeout_s 秒没下降。v8.43：永远不停止（不管战斗补救开没开）→ 写提醒、截图、重新计时，继续打。"""
         s = self.cfg["safety"]
-        if not self.cfg.get("recover", {}).get("enabled", True):
-            self.stop(f"目标血量 {s['stuck_timeout_s']} 秒没有下降（可能卡住/够不到）")
-            return True
-        self.log(f"⚠️ 目标血量 {s['stuck_timeout_s']} 秒没有下降（可能卡住/够不到/没蓝变身）→ 不停止（战斗补救开着），继续打")
+        self.log(f"⚠️ 目标血量 {s['stuck_timeout_s']} 秒没有下降（可能卡住/够不到/没蓝变身）→ 不停止，继续打")
         self._event("stall", f"目标血量 {s['stuck_timeout_s']} 秒没有下降（不停止）")
         self.last_drop_time = now
         return False
@@ -1099,15 +1096,30 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
         if self._corpse_tick(obs, now):      # v8.31：死了 → 释放灵魂 → 跑尸 → 复活 → 回血回蓝
             return
         self._bag_watch(obs, now)
-        if s.get("stop_on_death", True):
-            if obs.player_dead:
-                return self.stop("检测到死亡")
-            if obs.player_hp <= dead_pct and obs.hp_readable:
-                self.zero_hp_since = self.zero_hp_since if self.zero_hp_since is not None else now
-                if now - self.zero_hp_since >= float(s["death_hp_seconds"]):
-                    return self.stop("自己血量持续为 0（死亡；或插件读不到且血条区域/颜色没设置好）")
+        # v8.43：死了不再停止（跑尸开着时上面 _corpse_tick 已经处理；跑尸关着/插件太旧 → 不按键，等活过来再继续）
+        dead_now = bool(obs.player_dead)
+        if not dead_now and obs.player_hp <= dead_pct and obs.hp_readable:
+            self.zero_hp_since = self.zero_hp_since if self.zero_hp_since is not None else now
+            if now - self.zero_hp_since < float(s.get("death_hp_seconds", 2.0)):
                 return
+            dead_now = True
+        elif not dead_now:
             self.zero_hp_since = None
+        if dead_now:
+            if not self.dead_idle:
+                self.dead_idle = True
+                why = "跑尸关着" if not self._corpse_on() else "插件读不到死亡信息，跑不了尸"
+                self.log(f"💀 死亡（{why}）→ 不停止，等待（不按键），活过来后继续")
+                self._event("death", f"死亡（{why}），等待")
+                if self.walking:
+                    self._stop_walk()
+            return
+        if self.dead_idle:
+            self.dead_idle = False
+            self.zero_hp_since = None
+            self.log("✨ 活过来了 → 继续打怪")
+            self._reset_target_tracking(now)
+            self.state = State.SEARCHING
 
         if getattr(obs, "game_menu", False):
             return self._close_game_menu(now)
@@ -1170,9 +1182,16 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
                     if not self.near_death_noted:
                         self.near_death_noted = True
                         self.log(f"⚠️ 治疗过后血量仍只有 {hp:.0f}%（< {h.get('critical_pct', 15)}%），很危险 → 继续打；死了自动跑尸")
-                else:
-                    return self.danger_stop(f"治疗过后血量仍只有 {hp:.0f}%（< {h.get('critical_pct', 15)}%），"
-                                            "为免死亡已停止")
+                elif not self.near_death_noted:
+                    # v8.43：不再停止 → 每场战斗提醒一次（开着提示音就响一下），继续打
+                    self.near_death_noted = True
+                    self.log(f"⚠️ 治疗过后血量仍只有 {hp:.0f}%（< {h.get('critical_pct', 15)}%），很危险 → 不停止，继续打")
+                    self._event("danger", f"治疗过后血量仍只有 {hp:.0f}%")
+                    if h.get("beep", True) and self.beep:
+                        try:
+                            self.beep()
+                        except Exception:  # noqa: BLE001
+                            pass
             if hp < line:
                 left = float(h["heal_cooldown_s"]) - (now - self.last_heal_time)
                 short = self._mana_short(obs, "heal") if left <= 0 else None

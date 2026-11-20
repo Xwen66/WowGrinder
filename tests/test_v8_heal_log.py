@@ -1149,7 +1149,8 @@ class TestV811HealChain(Base):
         self.cast_once(10)
         self.clock.t += 0.2
         self.g.tick(obs(hp=10, thp=60, combat=True, form="bear", mana=80))
-        self.assertTrue(self.g.stopped)
+        self.assertFalse(self.g.stopped)                              # v8.43：不停止，提醒
+        self.assertTrue(any("治疗过后" in m and "不停止" in m for m in self.logs))
 
 
 class TestV812AddonLost(Base):
@@ -1173,13 +1174,15 @@ class TestV812AddonLost(Base):
         for _ in range(20):
             self.clock.t += 0.5
             self.g.tick(obs(hp=0, form="bear"))
-        self.assertTrue(self.g.stopped)
+        self.assertFalse(self.g.stopped)                              # v8.43：当成死了 → 等待，不停止
+        self.assertTrue(self.g.dead_idle)
 
     def test_screen_only_user_unchanged(self):
         for _ in range(20):
             self.clock.t += 0.5
             self.g.tick(obs(hp=0, source="screen"))
-        self.assertTrue(self.g.stopped)
+        self.assertFalse(self.g.stopped)                              # v8.43
+        self.assertTrue(self.g.dead_idle)
 
 
 class TestV812Window(unittest.TestCase):

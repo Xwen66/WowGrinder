@@ -403,13 +403,13 @@ DEFAULT_CONFIG: dict = {
         "hold_min_ms": 30,           # 按键按住时长
         "hold_max_ms": 90,
         "tick_ms": 150,              # 主循环间隔
-        "stuck_timeout_s": 25,       # 战斗中目标血量 N 秒不下降 → 关了战斗补救才停止；补救开着只提醒（v8.41）
-        "error_retry_max": 5,        # v8.38：程序出错 → 记日志、等 2 秒继续；error_retry_window_s 秒内超过 N 次才停止
-        "error_retry_window_s": 600,
+        "stuck_timeout_s": 25,       # 战斗中目标血量 N 秒不下降 → 提醒 + 截图、重新计时（v8.43 起永远不停止）
+        "error_retry_max": 5,        # v8.43 起不用了：出错永远重试（连续出错等 2→4→8→16→30 秒）
+        "error_retry_window_s": 600, # v8.43 起不用了
         "retarget_s": 6,             # 选中的怪 N 秒没掉血且未进战斗 → 换一个目标
-        "stop_on_death": True,
-        "death_hp_seconds": 2.0,     # 自己血量为 0 持续 N 秒 → 视为死亡
-        "failsafe": True,            # 鼠标甩到屏幕左上角紧急停止（pyautogui）
+        "stop_on_death": True,       # v8.43 起不用了：死了不停止（跑尸关着就等活过来）
+        "death_hp_seconds": 2.0,     # 自己血量为 0 持续 N 秒 → 视为死亡（不停止）
+        "failsafe": True,            # v8.43 起不用了：去掉“鼠标甩到左上角急停”（只用 F12 / 停止按钮 / 关窗口）
     },
     "misc": {
         "debug_preview": False,

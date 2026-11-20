@@ -55,12 +55,12 @@ class NearDeath(Base):
     def test_corpse_off_still_stops(self):
         self.cfg["corpse"]["enabled"] = False
         self.low()
-        self.assertTrue(self.g.stopped)
-        self.assertEqual(self.g.state, State.STOPPED)
+        self.assertFalse(self.g.stopped)                              # v8.43：跑尸关着也不停止
+        self.assertNotEqual(self.g.state, State.STOPPED)
 
     def test_old_addon_still_stops(self):
         self.low(info=False)
-        self.assertTrue(self.g.stopped)
+        self.assertFalse(self.g.stopped)                              # v8.43
 
 
 class ReserveV833(Base):

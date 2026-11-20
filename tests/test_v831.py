@@ -184,11 +184,12 @@ class TestCorpseRun(CorpseBase):
     def test_disabled_stops_like_before(self):
         self.cfg["corpse"]["enabled"] = False
         self.g.tick(dobs(dead=True))
-        self.assertTrue(self.g.stopped)
+        self.assertFalse(self.g.stopped)                              # v8.43：跑尸关着 → 不停止，等活过来
+        self.assertTrue(self.g.dead_idle)
 
     def test_old_addon_stops(self):
         self.g.tick(dobs(dead=True, info=False))
-        self.assertTrue(self.g.stopped)
+        self.assertFalse(self.g.stopped)                              # v8.43：不停止
         self.assertTrue(any("v0.12" in m for m in self.logs))
 
     def test_rest_interrupted_by_combat(self):
