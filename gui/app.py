@@ -87,7 +87,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.40")
+        self.title("WowGrinder 熊德自动打怪 v8.41")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -1039,7 +1039,7 @@ class App(tk.Tk):
             ("hold_min_ms", "按键按住 最短(ms)", "int", ""),
             ("hold_max_ms", "按键按住 最长(ms)", "int", ""),
             ("tick_ms", "识别循环间隔(ms)", "int", "实际会再随机 ±"),
-            ("stuck_timeout_s", "卡住超时(秒)", "float", "目标血量这么久不下降 → 停止"),
+            ("stuck_timeout_s", "卡住超时(秒)", "float", "目标血量这么久不下降 → 关了战斗补救才停止；补救开着只提醒、继续打（v8.41）"),
             ("retarget_s", "换目标时间(秒)", "float", "选中的怪不掉血且未进战斗 → 换目标"),
             ("stop_on_death", "死亡时自动停止", "bool", ""),
             ("death_hp_seconds", "0 血持续(秒)视为死亡", "float", ""),

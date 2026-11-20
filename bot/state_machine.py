@@ -329,6 +329,18 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
             self._event("death" if "死亡" in reason else "stop", reason, 0)
         self.inp.stop_event.set()
 
+    def _stall_stop(self, now) -> bool:
+        """目标血量 stuck_timeout_s 秒没下降。v8.41：只在关闭“战斗补救”时停止（README 一直这么写）；
+        补救开着 → 不停止，写提醒、重新计时，交给补救/换怪逻辑（以前这里直接停 bot，停了以后被怪打死也不会跑尸）。"""
+        s = self.cfg["safety"]
+        if not self.cfg.get("recover", {}).get("enabled", True):
+            self.stop(f"目标血量 {s['stuck_timeout_s']} 秒没有下降（可能卡住/够不到）")
+            return True
+        self.log(f"⚠️ 目标血量 {s['stuck_timeout_s']} 秒没有下降（可能卡住/够不到/没蓝变身）→ 不停止（战斗补救开着），继续打")
+        self._event("stall", f"目标血量 {s['stuck_timeout_s']} 秒没有下降（不停止）")
+        self.last_drop_time = now
+        return False
+
     def danger_stop(self, reason: str):
         """危险情况：停止并响提示音。"""
         self.stop(reason)
@@ -1844,8 +1856,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
             if t >= self.combat_start - 0.5 and (self.last_damage_t is None or t > self.last_damage_t):
                 self.last_damage_t = t
         stalled = now - self.last_drop_time
-        if stalled > float(s["stuck_timeout_s"]):
-            return self.stop(f"目标血量 {s['stuck_timeout_s']} 秒没有下降（可能卡住/够不到）")
+        if stalled > float(s["stuck_timeout_s"]) and self._stall_stop(now):
+            return
         if obs.form not in ("unknown", self._cform()):
             return self._to_bear(obs)
         if obs.autoattack is False and now - self.last_attack_press >= 2.0:
@@ -2576,8 +2588,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
             self.last_drop_time = now
 
         stalled = now - self.last_drop_time
-        if stalled > float(s["stuck_timeout_s"]):
-            return self.stop(f"目标血量 {s['stuck_timeout_s']} 秒没有下降（可能卡住/够不到）")
+        if stalled > float(s["stuck_timeout_s"]) and self._stall_stop(now):
+            return
         if stalled > float(s["retarget_s"]) and obs.in_combat is False:
             self.log("目标长时间没掉血且没进战斗，换目标")
             self._clear_target()
@@ -2922,6 +2934,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
             self.state = self.heal_prev or State.COMBAT
         # 治疗占用了几秒，别算成“没打出伤害”
         self.combat_start = self.clock()
+        self.last_drop_time = self.clock()      # v8.41：治疗的时间也别算进“目标血量 N 秒没下降”
         if self.last_damage_t is not None:
             self.last_damage_t = self.clock()
         self.rec_last = None

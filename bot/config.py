@@ -402,7 +402,7 @@ DEFAULT_CONFIG: dict = {
         "hold_min_ms": 30,           # 按键按住时长
         "hold_max_ms": 90,
         "tick_ms": 150,              # 主循环间隔
-        "stuck_timeout_s": 25,       # 战斗中目标血量 N 秒不下降 → 停止
+        "stuck_timeout_s": 25,       # 战斗中目标血量 N 秒不下降 → 关了战斗补救才停止；补救开着只提醒（v8.41）
         "error_retry_max": 5,        # v8.38：程序出错 → 记日志、等 2 秒继续；error_retry_window_s 秒内超过 N 次才停止
         "error_retry_window_s": 600,
         "retarget_s": 6,             # 选中的怪 N 秒没掉血且未进战斗 → 换一个目标
