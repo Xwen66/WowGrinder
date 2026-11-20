@@ -1,0 +1,267 @@
+{
+  "keys": {
+    "target": "tab",
+    "attack": "1",
+    "bear_form": "f1",
+    "cancel_form": "",
+    "healing_touch": "5",
+    "loot": "f",
+    "interact": "f",
+    "scan_turn": "right",
+    "clear_target": "esc",
+    "turn": "d",
+    "forward": "w",
+    "turn_left": "left",
+    "turn_right": "right",
+    "jump": "space",
+    "strafe": "q",
+    "back": "s",
+    "hotkey_stop": "f12",
+    "hotkey_toggle": "f10"
+  },
+  "heal": {
+    "heal_pct": 30,
+    "critical_pct": 15,
+    "rest_to_pct": 90,
+    "rest_timeout_s": 90,
+    "rest_min_mana": 10,
+    "heal_cooldown_s": 4.0,
+    "cast_s": 3.0,
+    "gcd_ms": 1500,
+    "cancel_form_first": true,
+    "beep": true
+  },
+  "stationary": {
+    "max_tabs": 6,
+    "pause_min_s": 2.0,
+    "pause_max_s": 4.0,
+    "tab_interval_s": 0.6,
+    "turn_search": true,
+    "turn_after_rounds": 1,
+    "wait_in_range_s": 5.0,
+    "face_turn_ms": 120,
+    "face_interval_s": 0.8,
+    "face_max_attempts": 6
+  },
+  "recover": {
+    "enabled": true,
+    "first_damage_s": 4.0,
+    "no_damage_s": 2.0,
+    "check_interval_s": 1.5,
+    "max_fails": 3,
+    "turn_ms": 150,
+    "back_ms": 300,
+    "skip_s": 30
+  },
+  "move": {
+    "mode": "stationary_tab",
+    "enabled": true,
+    "approach_timeout_s": 12,
+    "repress_interval_s": 2.0,
+    "combat_interact_interval_s": 0,
+    "opener_first": false
+  },
+  "nameplate": {
+    "enabled": true,
+    "select_method": "click",
+    "click_button": "right",
+    "tab_fallback": false,
+    "click_offset_y": 0,
+    "threshold_selected": 0.8,
+    "threshold_unselected": 0.8,
+    "multiscale": true,
+    "scales": "0.85,1.0,1.2",
+    "downscale": 0.5,
+    "color_match": true,
+    "brightness_weight": 0.6,
+    "nms_iou": 0.3,
+    "max_click_fails": 3,
+    "turn_when_offscreen": true,
+    "offscreen_turn_ms": 200,
+    "max_offscreen_turns": 8,
+    "target_confirm": "hp"
+  },
+  "scan": {
+    "tap_ms": 200,
+    "settle_ms": 350,
+    "max_turns": 40
+  },
+  "addon": {
+    "enabled": true,
+    "x": 0,
+    "y": 0,
+    "block": 10,
+    "tolerance": 40,
+    "calib_tolerance": 12,
+    "stale_s": 3.0
+  },
+  "area": {
+    "enabled": false,
+    "center_x": 50.0,
+    "center_y": 50.0,
+    "radius": 3.0,
+    "arrive_ratio": 0.5,
+    "map_id": 0,
+    "turn_rate_dps": 180,
+    "face_tolerance_deg": 25,
+    "walk_correct_deg": 8,
+    "return_timeout_s": 90,
+    "stuck_s": 3.0,
+    "move_eps": 0.03
+  },
+  "loot": {
+    "enabled": true,
+    "delay_ms": 700,
+    "wait_ms": 1200
+  },
+  "regions": {
+    "player_hp": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "target_hp": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "combat": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "action_bar": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "dead": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "target_frame": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "nameplates": [
+      160,
+      60,
+      1600,
+      640
+    ]
+  },
+  "colors": {
+    "player_hp_lo": [
+      35,
+      80,
+      60
+    ],
+    "player_hp_hi": [
+      85,
+      255,
+      255
+    ],
+    "target_hp_lo": [
+      35,
+      80,
+      60
+    ],
+    "target_hp_hi": [
+      85,
+      255,
+      255
+    ],
+    "combat_lo": [
+      0,
+      120,
+      120
+    ],
+    "combat_hi": [
+      10,
+      255,
+      255
+    ]
+  },
+  "detect": {
+    "bar_mode": "rightmost",
+    "column_fill_ratio": 0.4,
+    "combat_mode": "template",
+    "combat_color_ratio": 0.05,
+    "template_threshold": 0.8,
+    "dead_pct": 1.0
+  },
+  "rotation": {
+    "mode": "timed",
+    "brightness_ratio": 0.75,
+    "skills": [
+      {
+        "name": "裂伤",
+        "image": "skills/mangle.png",
+        "key": "2",
+        "priority": 1,
+        "threshold": 0.8,
+        "cooldown_ms": 1500,
+        "enabled": true
+      },
+      {
+        "name": "痛击",
+        "image": "skills/thrash.png",
+        "key": "3",
+        "priority": 2,
+        "threshold": 0.8,
+        "cooldown_ms": 1500,
+        "enabled": true
+      },
+      {
+        "name": "重殴",
+        "image": "skills/maul.png",
+        "key": "4",
+        "priority": 3,
+        "threshold": 0.8,
+        "cooldown_ms": 1500,
+        "enabled": true
+      },
+      {
+        "name": "横扫",
+        "image": "skills/swipe.png",
+        "key": "7",
+        "priority": 9,
+        "threshold": 0.8,
+        "cooldown_ms": 1500,
+        "enabled": true
+      }
+    ]
+  },
+  "safety": {
+    "delay_min_ms": 120,
+    "delay_max_ms": 320,
+    "hold_min_ms": 30,
+    "hold_max_ms": 90,
+    "tick_ms": 150,
+    "stuck_timeout_s": 25,
+    "max_no_target_s": 90,
+    "max_idle_s": 180,
+    "retarget_s": 6,
+    "stop_on_death": true,
+    "death_hp_seconds": 2.0,
+    "turn_enabled": false,
+    "turn_every_tabs": 4,
+    "turn_hold_ms": 250,
+    "failsafe": true
+  },
+  "misc": {
+    "debug_preview": false,
+    "capture_delay_s": 3,
+    "monitor": 1,
+    "window_check": true,
+    "window_keywords": "World of Warcraft,魔兽世界,WoW"
+  }
+}

@@ -1,0 +1,5 @@
+必须：
+  nameplates/unselected/*.png  未选中的敌方姓名板（可多张）
+  nameplates/selected/*.png    当前目标（选中）的姓名板（更大更亮带边框，可多张）
+可选（只在 BotStatus 插件读不到时用于截图识别）：
+  combat.png / dead.png / target_frame.png / skills/*.png
