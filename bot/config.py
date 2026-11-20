@@ -137,6 +137,15 @@ DEFAULT_CONFIG: dict = {
         "swipe_every_s": 6.0,     # 横扫间隔
         "press_interval_s": 1.5,  # 熊形态按技能最短间隔
     },
+    "reconnect": {
+        # v8.44 断线自动重连：截图认出断线弹窗/登录界面/选角色界面 → 每 interval_s 秒按一次 Enter，直到回到游戏（插件色块读得到）
+        "enabled": True,
+        "interval_s": 10.0,
+        "confirm_s": 2.0,         # 连续认出这么久才开始按（防误判）
+        "ok_s": 3.0,              # 插件色块连续读得到这么久（且没再看到登录界面）才算回到游戏
+        "check_every_s": 1.0,     # 每隔几秒截图认一次（一次约 50ms）
+        "key": "enter",
+    },
     "tab_search": {
         # v8.40 Tab 找怪（点击模式）：找怪时先按选怪键（keys.target，默认 Tab），插件 v0.13 检查目标合格才过去打
         "enabled": True,          # GUI“Tab 找怪”

@@ -53,6 +53,7 @@ from .navigation import angle_diff, area_label, area_report, bearing_to, distanc
 from .corpse import CorpseRunMixin  # noqa: E402
 from .multibear import MultiBearMixin  # noqa: E402
 from .tabsearch import TabSearchMixin  # noqa: E402
+from .reconnect import ReconnectMixin  # noqa: E402
 
 class State(str, Enum):
     SEARCHING = "寻找目标"
@@ -71,7 +72,7 @@ class State(str, Enum):
 ALIVE_KINDS = ("enemy", "unknown")
 
 
-class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
+class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin):
     def __init__(self, cfg: dict, inp, log=print, clock=time.monotonic, screen_offset=(0, 0), beep=alarm, dlog=None):
         self.cfg = cfg
         self.inp = inp
@@ -185,6 +186,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
         self.kills = 0
         self._mb_init()                  # v8.38：被多只怪打 → 临时变熊
         self._ts_init()                  # v8.40：Tab 找怪
+        self._rc_init()                  # v8.44：断线自动重连
         now = clock()
         self.last_combat_time = now
         self.no_target_since: float | None = None
@@ -1081,6 +1083,9 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
         h, s, d = self.cfg["heal"], self.cfg["safety"], self.cfg["detect"]
         dead_pct = float(d["dead_pct"])
 
+        if self._reconnect_tick(obs, now):  # v8.44：断线/登录/选角色界面 → 每 10 秒按 Enter，进游戏后继续
+            return
+
         # 1) 死亡检测
         if obs.source == "addon":
             self.addon_seen = True
@@ -1503,6 +1508,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin):
         return max(0.0, self.break_until - now)
 
     def status_label(self):
+        if getattr(self, "rc_active", False):
+            return self.reconnect_label()
         rem = self.break_remaining()
         bag = "（🎒背包满：只打怪）" if self.bag_full else ""
         if self.cr is not None:

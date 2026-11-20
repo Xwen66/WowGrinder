@@ -87,7 +87,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.43")
+        self.title("WowGrinder 熊德自动打怪 v8.44")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -1054,6 +1054,10 @@ class App(tk.Tk):
         self._field(f, r + 3, "开始/截图倒计时(秒)", "misc", "capture_delay_s", "int")
         self._field(f, r + 4, "调试预览窗口", "misc", "debug_preview", "bool", tip="会占一些性能，默认关")
         self._field(f, r + 5, "截图最多保留(张)", "log", "keep_shots", "int", tip="v8.25：logs/shots 只留最新的 N 张，默认 50")
+        ttk.Separator(f).grid(row=r + 6, column=0, columnspan=3, sticky="ew", pady=6)
+        self._field(f, r + 7, "断线自动重连（v8.44）", "reconnect", "enabled", "bool",
+                    tip="截图认出断线弹窗/登录界面/选角色界面 → 按 Enter，直到回到游戏再继续打怪（默认开）")
+        self._field(f, r + 8, "重连按 Enter 间隔(秒)", "reconnect", "interval_s", "float", tip="默认 10 秒按一次，不设放弃时间")
 
     # ================================================================ 底部
     def _bottom(self):

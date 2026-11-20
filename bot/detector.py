@@ -222,6 +222,8 @@ class Observation:
     facing: float | None = None     # 朝向弧度，0=北，逆时针
     map_id: int | None = None
     gamma_note: str = ""            # 插件校准灰偏离默认 → 提示
+    glue: bool = False              # v8.44：截图认出断线弹窗/登录/选角色界面（约 1 秒查一次，不管插件读不读得到）
+    glue_what: str = ""
     # ---- v0.5：普通攻击距离、独立报错、伤害
     attack_range: str = "unknown"   # in/out/unknown/none/no_slot
     attack_slot: bool | None = None # 动作条上有“攻击”
@@ -405,6 +407,7 @@ class Detector:
             self._fill_from_addon(obs, a)
         else:
             self._fill_from_screen(obs, frame)
+        self._check_glue(obs, frame)
         obs.ready_skills = self.ready_skills(frame)
         obs.frame_size = (frame.shape[1], frame.shape[0])
         if obs.source == "addon" and obs.target_exists and obs.marker_state in ("shown", "unknown") \
@@ -435,6 +438,27 @@ class Detector:
                 obs.target_exists = obs.target_exists or obs.selected_plate is not None
             obs.target_kind = "enemy" if obs.target_exists and obs.target_hp > cfg["detect"]["dead_pct"] else "none"
         return obs
+
+    def _check_glue(self, obs, frame):
+        """v8.44：看看是不是断线弹窗 / 登录界面 / 选角色界面（给自动重连用）。
+        不能只在插件读不到时查：选角色界面左上角的 logo/天空会被插件读取器误读成“插件色块”（日志 00:41 实测）。
+        一次约 50ms → 每 check_every_s 秒（默认 1）查一次，中间用上次的结果。"""
+        rc = self.cfg.get("reconnect", {})
+        if not rc.get("enabled", True):
+            return
+        now = time.monotonic()
+        last = getattr(self, "_glue_last", None)
+        if last is not None and now - last[0] < float(rc.get("check_every_s", 1.0)):
+            obs.glue, obs.glue_what = last[1], last[2]
+            return
+        try:
+            if getattr(self, "_glue", None) is None:
+                from .glue import GlueDetector
+                self._glue = GlueDetector()
+            obs.glue, obs.glue_what, _ = self._glue.check(frame)
+        except Exception:  # noqa: BLE001
+            obs.glue, obs.glue_what = False, ""
+        self._glue_last = (now, obs.glue, obs.glue_what)
 
     def _marks_usable(self, a, obs):
         """v8.28：能不能用插件 v0.11 的 黄|蓝 标记代替模板。返回 (能用, 不能用的原因)。"""
