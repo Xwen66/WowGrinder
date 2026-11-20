@@ -224,6 +224,7 @@ class Observation:
     gamma_note: str = ""            # 插件校准灰偏离默认 → 提示
     glue: bool = False              # v8.44：截图认出断线弹窗/登录/选角色界面（约 1 秒查一次，不管插件读不读得到）
     glue_what: str = ""
+    glue_info: str = ""             # v8.45：各项分数（日志/截图说明用）
     # ---- v0.5：普通攻击距离、独立报错、伤害
     attack_range: str = "unknown"   # in/out/unknown/none/no_slot
     attack_slot: bool | None = None # 动作条上有“攻击”
@@ -447,18 +448,22 @@ class Detector:
         if not rc.get("enabled", True):
             return
         now = time.monotonic()
+        # v8.45：弹窗（黑底+红按钮）只在插件读不到时算数 —— 游戏世界里“释放灵魂”、Esc 菜单也长这样
+        dialog_ok = obs.source != "addon"
         last = getattr(self, "_glue_last", None)
-        if last is not None and now - last[0] < float(rc.get("check_every_s", 1.0)):
-            obs.glue, obs.glue_what = last[1], last[2]
+        if last is not None and last[1] == dialog_ok and now - last[0] < float(rc.get("check_every_s", 1.0)):
+            obs.glue, obs.glue_what, obs.glue_info = last[2], last[3], last[4]
             return
         try:
             if getattr(self, "_glue", None) is None:
                 from .glue import GlueDetector
                 self._glue = GlueDetector()
-            obs.glue, obs.glue_what, _ = self._glue.check(frame)
-        except Exception:  # noqa: BLE001
-            obs.glue, obs.glue_what = False, ""
-        self._glue_last = (now, obs.glue, obs.glue_what)
+            from .glue import score_text
+            obs.glue, obs.glue_what, sc = self._glue.check(frame, dialog_ok=dialog_ok)
+            obs.glue_info = score_text(sc)
+        except Exception as e:  # noqa: BLE001
+            obs.glue, obs.glue_what, obs.glue_info = False, "", f"出错 {type(e).__name__}"
+        self._glue_last = (now, dialog_ok, obs.glue, obs.glue_what, obs.glue_info)
 
     def _marks_usable(self, a, obs):
         """v8.28：能不能用插件 v0.11 的 黄|蓝 标记代替模板。返回 (能用, 不能用的原因)。"""

@@ -10,6 +10,8 @@ RC_DEFAULTS = {
     "interval_s": 10.0,     # 每隔几秒按一次 Enter
     "confirm_s": 2.0,       # 连续认出这么久才开始按（防误判）
     "ok_s": 3.0,            # 插件色块连续读得到这么久（且没再看到登录界面）才算回到游戏
+    "blind_after_s": 30.0,  # v8.45：重连中，界面没认出来、插件也读不到 这么久之后，照样按 Enter（读条/没认出来的登录界面）
+    "lost_shot_s": 30.0,    # v8.45：平时插件读不到这么久（又没认出断线界面）→ 存一张截图查原因（10 分钟一次）
     "key": "enter",
 }
 
@@ -22,6 +24,8 @@ class ReconnectMixin:
         self.rc_n = 0
         self.rc_wait_noted = False
         self.rc_ok_since = None     # 重连中：插件色块开始连续读得到的时间
+        self.rc_seen = -1e9         # v8.45：重连中最后一次认出界面 / 读到插件的时间
+        self.rc_lost_since = None   # v8.45：插件色块读不到、又没认出断线界面 的开始时间（存截图查原因）
 
     def _rc_cfg(self) -> dict:
         c = dict(RC_DEFAULTS)
@@ -33,6 +37,17 @@ class ReconnectMixin:
         c = self._rc_cfg()
         if not c.get("enabled", True):
             return False
+        if obs.source != "addon" and not getattr(obs, "glue", False) and not self.rc_active:
+            # v8.45：读不到插件又没认出来 → 30 秒后存一张截图 + 分数（10 分钟一次），下次没认出来的界面能拿来做模板
+            if self.rc_lost_since is None:
+                self.rc_lost_since = now
+            elif now - self.rc_lost_since >= float(c.get("lost_shot_s", 30.0)):
+                self._event("addon_lost", f"读不到插件 {now - self.rc_lost_since:.0f} 秒，也没认出断线界面"
+                                          f"（{getattr(obs, 'glue_info', '')}）", 600)
+        else:
+            self.rc_lost_since = None
+        if getattr(obs, "glue", False) or obs.source == "addon":
+            self.rc_seen = now
         if getattr(obs, "glue", False):
             self.rc_wait_noted = False
             self.rc_ok_since = None
@@ -50,12 +65,7 @@ class ReconnectMixin:
                     pass
                 self.log(f"🔌 认出断线/登录/选角色界面（{obs.glue_what}）→ 每 {float(c['interval_s']):.0f} 秒按一次 Enter 重连")
                 self._event("disconnect", f"断线/登录界面：{obs.glue_what}", 0)
-            if now - self.rc_last >= float(c.get("interval_s", 10.0)):
-                self.rc_last = now
-                self.rc_n += 1
-                self._ctx(f"断线重连：按 Enter（第 {self.rc_n} 次）")
-                self.inp.press(str(c.get("key") or "enter"))
-                self.log(f"🔌 断线 → 按 Enter 重连（第 {self.rc_n} 次）")
+            self._rc_press(c, now)
             return True
         self.rc_since = None
         if not self.rc_active:
@@ -75,11 +85,24 @@ class ReconnectMixin:
             self.rc_active, self.rc_wait_noted, self.rc_ok_since = False, False, None
             return False
         self.rc_ok_since = None
-        # 读条/加载中：既不是登录界面也还没进游戏 → 等着，不按键
+        # v8.45：已经在重连了，现在既没认出界面、插件也读不到（读条 / 没认出来的登录界面）。
+        # 先等 blind_after_s（30 秒，读条一般更快；刚进游戏插件偶尔闪一下读不到，不能这时按 Enter —— 会打开聊天框），
+        # 还是这样 → 照样每 10 秒按 Enter，直到进游戏（登录界面按 Enter = 登录）
+        blind = float(c.get("blind_after_s", 30.0))
         if not self.rc_wait_noted:
             self.rc_wait_noted = True
-            self.log("⏳ 重连中：看不到登录/选角色界面，也还没进游戏（多半在读条）→ 等着")
+            self.log(f"⏳ 重连中：没认出界面、也还没进游戏（读条或登录中）→ 等着；{blind:.0f} 秒后还这样就照样按 Enter")
+        if now - self.rc_seen >= blind:
+            self._rc_press(c, now)
         return True
+
+    def _rc_press(self, c, now):
+        if now - self.rc_last >= float(c.get("interval_s", 10.0)):
+            self.rc_last = now
+            self.rc_n += 1
+            self._ctx(f"断线重连：按 Enter（第 {self.rc_n} 次）")
+            self.inp.press(str(c.get("key") or "enter"))
+            self.log(f"🔌 断线 → 按 Enter 重连（第 {self.rc_n} 次）")
 
     def reconnect_label(self) -> str:
         return f"🔌 断线重连中（按了 {self.rc_n} 次 Enter）"

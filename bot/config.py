@@ -144,6 +144,8 @@ DEFAULT_CONFIG: dict = {
         "confirm_s": 2.0,         # 连续认出这么久才开始按（防误判）
         "ok_s": 3.0,              # 插件色块连续读得到这么久（且没再看到登录界面）才算回到游戏
         "check_every_s": 1.0,     # 每隔几秒截图认一次（一次约 50ms）
+        "blind_after_s": 30.0,    # v8.45 重连中：界面没认出来、插件也读不到 这么久 → 照样每 interval_s 按 Enter
+        "lost_shot_s": 30.0,      # v8.45 平时插件读不到这么久又没认出断线界面 → 存截图+分数（10 分钟一次）
         "key": "enter",
     },
     "tab_search": {

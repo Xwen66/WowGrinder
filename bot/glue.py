@@ -4,8 +4,13 @@
 - logo.png：左上角“魔兽世界 无限”logo（登录界面、选角色界面都有；游戏世界里没有）
 - enter_world.png：选角色界面下方红色“进入魔兽世界”按钮
 - top_bar.png：选角色界面顶上“商城 / 选项菜单 / 规则集”一排按钮
-任何一个匹配上（灰度归一化相关 ≥ 各自阈值）就算“不在游戏世界里”。只在插件色块读不到时才检查（游戏世界里插件一直在）。
-界面大小跟着窗口高度缩放：模板按 帧高/1350 缩放，再在 ±20% 里找。"""
+任何一个匹配上（灰度归一化相关 ≥ 各自阈值）就算“不在游戏世界里”。
+界面大小跟着窗口高度缩放：模板按 帧高/1350 缩放，再在 ±20% 里找。
+
+v8.45（t182u）：“已与服务器断开连接”弹窗（登录界面上，背景可能没有 logo）v8.44 认不出来 → 加 find_dialog：
+屏幕中间一个黑底、棕/金色边框的对话框，里面有红色按钮（暴雪对话框统一样式：游戏里的“释放灵魂”、
+“BotStatus 已被禁用”弹窗、选角色界面的按钮都是这样）。游戏世界里也有这种弹窗，所以这一项
+只在插件色块读不到时才算数（由 check(dialog_ok=...) 控制）。"""
 from __future__ import annotations
 
 import os
@@ -24,7 +29,55 @@ TEMPLATES = (
     ("top_bar", "top_bar.png", (0.2, 0.0, 0.8, 0.12), 0.88),
 )
 SCALES = (0.8, 0.9, 1.0, 1.1, 1.2)
-CN = {"logo": "左上角魔兽世界 logo", "enter_world": "“进入魔兽世界”按钮", "top_bar": "选角色界面顶栏"}
+CN = {"logo": "左上角魔兽世界 logo", "enter_world": "“进入魔兽世界”按钮", "top_bar": "选角色界面顶栏",
+      "dialog": "屏幕中间的弹窗（黑底+红按钮，如“已与服务器断开连接”）"}
+
+
+def find_dialog(frame) -> list:
+    """v8.45：找屏幕中间“黑底 + 棕/金边框 + 红按钮”的暴雪对话框。→ [(x, y, w, h)]（缩到 600 高的坐标）。
+    按钮：深红色块，高 5~30px、宽高比 2.5~12、填满 60% 以上，中心在屏幕中间 60%×80% 里；
+    按钮正下方是暗的（对话框底）、正上方 2 个按钮高也是暗的；再往上 14 个按钮高以内有一条棕/金色边框横线，
+    边框和按钮之间大部分是暗的（对话框里的字是亮的，所以只要 60%）。"""
+    if frame is None or frame.ndim != 3:
+        return []
+    H0 = frame.shape[0]
+    if H0 < 100:
+        return []
+    f = cv2.resize(frame, (max(1, int(round(frame.shape[1] * 600.0 / H0))), 600),
+                   interpolation=cv2.INTER_AREA) if H0 != 600 else frame
+    H, W = f.shape[:2]
+    b, g, r = (f[:, :, i].astype(np.int16) for i in range(3))
+    red = ((r > 80) & (r > 2 * g + 10) & (r > 2 * b + 10)).astype(np.uint8)
+    red = cv2.morphologyEx(red, cv2.MORPH_CLOSE, np.ones((3, 5), np.uint8))   # 补上按钮上的金色字
+    n, _lab, st, _cen = cv2.connectedComponentsWithStats(red, 8)
+    v = f.max(axis=2).astype(np.int16)
+    hits = []
+    for i in range(1, n):
+        x, y, w, h, a = (int(t) for t in st[i])
+        if not (5 <= h <= 30 and 2.5 <= w / h <= 12 and a >= 0.6 * w * h):
+            continue
+        cx, cy = x + w / 2.0, y + h / 2.0
+        if not (0.2 * W < cx < 0.8 * W and 0.1 * H < cy < 0.9 * H):
+            continue
+        below = v[min(H - 1, y + h + 1):min(H, y + h + 1 + max(2, h // 2)), x:x + w]
+        above = v[max(0, y - 2 * h):max(0, y - 1), x:x + w]
+        if below.size == 0 or above.size == 0:
+            continue
+        if (below < 60).mean() <= 0.6 or (above < 60).mean() <= 0.5:
+            continue
+        border = None
+        for yy in range(y - 2 * h, max(0, y - 14 * h), -1):
+            row = f[yy, max(0, x - h):min(W, x + w + h)].astype(np.int16)
+            bb, gg, rr = row[:, 0], row[:, 1], row[:, 2]
+            if ((rr >= gg) & (gg >= bb - 5) & (rr > 60) & (rr - bb > 15)).mean() > 0.7:
+                border = yy
+                break
+        if border is None:
+            continue
+        mid = v[border + 2:y - 1, x:x + w]
+        if mid.size and (mid < 70).mean() > 0.6:
+            hits.append((x, y, w, h))
+    return hits
 
 
 class GlueDetector:
@@ -65,8 +118,22 @@ class GlueDetector:
             out[name] = best
         return out
 
-    def check(self, frame):
-        """→ (是不是登录/选角色/断线界面, 认出来的是什么, 分数)。"""
+    def check(self, frame, dialog_ok: bool = True):
+        """→ (是不是登录/选角色/断线界面, 认出来的是什么, 分数)。
+        dialog_ok=False：弹窗不算（插件读得到 = 在游戏世界里，那里的弹窗是“释放灵魂”之类）。分数里 dialog = 找到几个红按钮。"""
         sc = self.scores(frame)
         hits = [n for n, v in sc.items() if v >= self.thr.get(n, 0.8)]
+        try:
+            sc["dialog"] = float(len(find_dialog(frame)))
+        except Exception:  # noqa: BLE001
+            sc["dialog"] = 0.0
+        if dialog_ok and sc["dialog"] > 0:
+            hits.append("dialog")
         return bool(hits), "、".join(CN.get(n, n) for n in hits), sc
+
+
+def score_text(sc: dict) -> str:
+    """日志用：logo 0.31 / 进入按钮 0.20 / 顶栏 0.55 / 弹窗 0。"""
+    short = {"logo": "logo", "enter_world": "进入按钮", "top_bar": "顶栏", "dialog": "弹窗"}
+    return " / ".join(f"{short.get(k, k)} {v:.2f}" if k != "dialog" else f"{short[k]} {int(v)}"
+                      for k, v in sc.items())

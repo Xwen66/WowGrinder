@@ -62,7 +62,7 @@ class TestGlueDetector(unittest.TestCase):
     def test_in_world_negative(self):
         for n in ("world_960.jpg", "world_menu_960.jpg"):
             for size in (None, (2160, 1350)):
-                ok, _, sc = self.g.check(img(n, size))
+                ok, _, sc = self.g.check(img(n, size), dialog_ok=False)   # v8.45：插件读得到时弹窗不算
                 self.assertFalse(ok, (n, size, sc))
 
     def test_plain_and_noise_negative(self):
@@ -172,7 +172,7 @@ class TestReconnectTick(Base):
         # 读条：既不是登录界面也没有插件 → 等着，不按键
         lost = obs(hp=100)
         lost.source = "screen"
-        for _ in range(60):
+        for _ in range(50):                # v8.45：30 秒后才会照样按，这里 25 秒
             self.clock.t += 0.5
             self.g.tick(lost)
         self.assertEqual(len(self.enters()), 1)
