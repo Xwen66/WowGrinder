@@ -87,7 +87,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.45")
+        self.title("WowGrinder 熊德自动打怪 v8.46")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -429,7 +429,7 @@ class App(tk.Tk):
         ttk.Separator(f).grid(row=r2, column=0, columnspan=5, sticky="ew", pady=6)
         g = ttk.Frame(f)
         g.grid(row=r2 + 1, column=0, columnspan=5, sticky="w")
-        self._field(g, 0, "战斗中治疗线(%)", "heal", "heal_pct", "int", tip="低于此血量切人形放治疗之触（默认 30）")
+        self._field(g, 0, "战斗中治疗线(%)", "heal", "heal_pct", "int", tip="低于此血量切人形放治疗之触（v8.46 默认 40）")
         self._field(g, 0, "战斗中治疗回复线(%)", "heal", "heal_to_pct", "int", col=3,
                     tip="战斗治疗开始后连续放治疗之触，直到血量 ≥ 此值再变回熊（默认 90）")
         self._field(g, 1, "战斗治疗最多连放(个)", "heal", "heal_chain_max", "int", col=3, tip="防止一直放（默认 6）")
@@ -443,6 +443,14 @@ class App(tk.Tk):
         self._field(g, 8, "回春术耗蓝约(%)", "heal", "rejuv_cost_pct", "float", col=3, tip="v8.27 初始估计，实测后自动更新（默认 12）")
         self._field(g, 9, "变身余量(%)（v8.42）", "heal", "reserve_margin_pct", "float", col=3,
                     tip="治疗前预计“治疗后法力”要 ≥ 变身预留 + 这个余量才放，保证治完能变回猎豹（默认 3）")
+        self._field(g, 10, "先回蓝再开怪（v8.46）", "heal", "mana_rest_enabled", "bool", col=3,
+                    tip="打完怪 血低 + 蓝不够放一个治疗之触再变身 → 不拉新怪，等回蓝；被打照常迎战")
+        self._field(g, 11, "血量低于(%)才回蓝", "heal", "mana_rest_hp_below", "float", col=3, tip="默认 60；血多就直接打")
+        self._field(g, 12, "回蓝余量(%)", "heal", "mana_rest_margin_pct", "float", col=3,
+                    tip="回到 变身预留 + 治疗之触耗蓝 + 这个（默认 10，约 60%）")
+        self._field(g, 13, "回蓝时血回到(%)也算好", "heal", "mana_rest_hp_ok", "float", col=3, tip="默认 90")
+        self._field(g, 14, "回蓝最多等(秒)", "heal", "mana_rest_timeout_s", "float", col=3, tip="默认 120；超时继续打，60 秒内不再停")
+        self._field(g, 15, "喝水键", "heal", "drink_key", "str", col=3, tip="空 = 不喝水，原地等（不变形，省变身的蓝）")
         self._field(g, 1, "战后回血到(%)", "heal", "rest_to_pct", "int", tip="血量低于“脱战低于多少才回血”时，人形回血到此血量")
         self._field(g, 2, "战斗识别方式", "detect", "combat_mode", choices=["template", "color", "none"],
                     tip="template=匹配 combat.png；color=区域内红色比例；none=不识别")
@@ -613,6 +621,8 @@ class App(tk.Tk):
             ("scan", "tap_ms", "找怪转视角每次(ms)", "int", None, "约 200ms ≈ 35°"),
             ("scan", "settle_ms", "转完等待(ms)", "int", None, ""),
             ("move", "approach_timeout_s", "走过去超时(秒)", "float", None, "超时还没打上→换怪"),
+            ("move", "walk_far", "怪远先走过去再开打（v8.46）", "bool", None, "默认开：按住前进朝它走，到近战距离再按开怪键"),
+            ("move", "walk_far_max_s", "朝远处的怪最多走(秒)", "float", None, "默认 15；没到就换目标"),
             ("move", "click_interval_s", "两次右键至少间隔(秒)", "float", None, "v8.24 默认 3；点完先判断要不要再点"),
             ("move", "opener_first", "先按开怪键再走过去", "bool", None, "默认关"),
             ("move", "open_with_attack", "走到怪身边先按开怪键", "bool", None, "默认开：猎豹和熊都用 f 开怪"),
@@ -724,6 +734,7 @@ class App(tk.Tk):
             ("area", "enabled", "启用区域刷怪", "bool", "点击模式和原地模式都管"),
             ("area", "home_on_start", "开始时把当前位置当中心", "bool", "关掉 = 用下面保存的中心坐标"),
             ("area", "leash_ratio", "追怪最远(半径×)", "float", "点击模式：还没开打就追出 半径×此值 → 放弃这只，走回中心"),
+            ("area", "auto_switch_center", "就近切换中心（v8.46）", "bool", "出了当前中心的范围、但在另一个中心范围里 → 直接换过去，不走回去"),
             ("scan", "spin_home", "转一圈没找到怪就回中心", "bool", "v8.19：找怪转视角累计转满下面的度数 → 走回范围中心"),
             ("scan", "spin_deg", "转多少度算一圈", "float", "默认 360"),
             ("scan", "spin_near_ratio", "已在中心附近(半径×)", "float", "在这个距离内不走，等一会儿再找（默认 0.2）"),

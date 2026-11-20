@@ -69,6 +69,7 @@ class TestPostFightRest(Base):
         self.assertTrue(any("回血时被打" in m for m in self.logs))
 
     def test_after_grace_in_combat_logs_skip_reason(self):
+        self.cfg["heal"]["heal_pct"] = 30          # v8.46 默认改 40；这里测的是 30~40 之间的日志
         self.g.last_kill_t = self.clock.t - 30
         self.g.tick(obs(hp=35, combat=True, form="bear"))
         self.assertTrue(any("不回血" in m for m in self.logs))
@@ -139,6 +140,7 @@ class TestCombatHeal(Base):
         self.assertNotEqual(self.g.state, State.HEALING)
 
     def test_heal_line_skip_logged_between_30_and_40(self):
+        self.cfg["heal"]["heal_pct"] = 30          # v8.46 默认改 40
         self.engage()
         self.g.tick(obs(hp=35, thp=60, arange="in", combat=True, form="bear"))
         self.assertTrue(any("不治疗" in m and "35%" in m for m in self.logs))

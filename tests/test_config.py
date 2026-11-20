@@ -26,7 +26,7 @@ class TestConfigMigrate(unittest.TestCase):
         self.assertEqual(cfg["keys"]["healing_touch"], "7")      # 沿用原来的愈合键
         self.assertNotIn("regrowth", cfg["keys"])
         self.assertEqual(cfg["keys"]["bear_form"], "f2")
-        self.assertEqual(cfg["heal"]["heal_pct"], 30)
+        self.assertEqual(cfg["heal"]["heal_pct"], 40)      # v8.46 默认 40
         self.assertEqual(cfg["heal"]["rest_to_pct"], 85)          # 用户自己改的保留
         self.assertNotIn("mode", cfg["heal"])
         self.assertEqual(cfg["heal"]["cast_s"], 3.0)

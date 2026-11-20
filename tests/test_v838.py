@@ -49,7 +49,7 @@ class MultiBear(PostBase):
         self.assertTrue(mb["enabled"])
         self.assertEqual((mb["fast_drop_pct"], mb["maul_key"], mb["min_mana_pct"]), (20, "1", 40))
         self.assertEqual(set(MB_DEFAULTS), set(mb))
-        self.assertEqual(DEFAULT_CONFIG["heal"]["heal_pct"], 30)          # 治疗线不变
+        self.assertEqual(DEFAULT_CONFIG["heal"]["heal_pct"], 40)          # v8.46：30 → 40
 
     def test_fast_drop_shifts_to_bear(self):
         self.start_fight()

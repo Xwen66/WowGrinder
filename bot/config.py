@@ -76,7 +76,7 @@ DEFAULT_CONFIG: dict = {
     },
     "heal": {
         # 只用 治疗之触：取消熊形态 → 治疗之触（站着不动读条）→ 变回熊
-        "heal_pct": 30,           # 战斗中低于此血量 → 紧急治疗
+        "heal_pct": 40,           # 战斗中低于此血量 → 紧急治疗（v8.46：30 → 40，28% 才读条常常读不完就死）
         "heal_to_pct": 90,        # v8.11 战斗中治疗回复线：开始战斗治疗后，连续放治疗之触直到血量 ≥ 此值再变回熊
         "heal_chain_max": 6,      # v8.11 一次战斗治疗最多连放几个治疗之触（防止无限循环）
         "heal_min_mana": 10,      # v8.11 插件读到法力低于此值 → 不再连放，变回熊
@@ -108,6 +108,14 @@ DEFAULT_CONFIG: dict = {
         "rejuv_no_repeat_s": 12,  # v8.30：回春术放完 N 秒内（持续时间）战后不再放回春术，也不变形；0 = 不限制
         "heal_cost_pct": 20,      # 一个治疗之触大约耗多少 %（实测后自动更新，日志里实测约 18-28%）
         "buff_cost_pct": 10,      # 一个 buff 大约耗多少 %（实测后自动更新）
+        # v8.46 先回蓝再开怪：脱战后 血量 < mana_rest_hp_below 且 法力 < 变身预留 + 治疗之触耗蓝 + mana_rest_margin_pct
+        # → 不拉新怪，原地等回蓝（填了喝水键就变人形喝水），到线或血量 ≥ mana_rest_hp_ok 再找怪；被打照常迎战
+        "mana_rest_enabled": True,
+        "mana_rest_hp_below": 60,
+        "mana_rest_margin_pct": 10,
+        "mana_rest_hp_ok": 90,
+        "mana_rest_timeout_s": 120,
+        "drink_key": "",          # 喝水键（动作条上放水/食物的键）；空 = 不喝，原地等
     },
     "cat": {
         # v8.15 猎豹形态循环（插件 v0.9 能读到连击点/能量就用读数；读不到就按次数轮转）
@@ -272,6 +280,9 @@ DEFAULT_CONFIG: dict = {
         "mode": "stationary_tab",     # stationary_tab=原地不动 + Tab 选怪（默认） / click=点击移动走过去（旧）
         "enabled": True,              # 选中怪后按“与目标互动”自动走过去（需开启游戏的点击移动）
         "approach_timeout_s": 12,     # 走过去超过 N 秒还没进战斗 → 放弃这个目标
+        "walk_far": True,             # v8.46：选中的怪离得远（插件距离 far/ranged）→ 按住前进朝它走，到近战距离再按开怪键
+        "walk_far_max_s": 15.0,       # v8.46：最多走这么久，还没到 → 换目标
+        "walk_far_stuck_s": 2.5,      # v8.46：走的时候坐标这么久没变 → 改成右键点它走过去
         "repress_interval_s": 2.0,    # 接近途中/面向错误时，每隔 N 秒再右键一次选中姓名板
         "click_interval_s": 3.0,      # v8.24 任意两次右键至少隔 N 秒；点完先判断（角色没在走近/还报错）才再点
         "opener_first": False,        # 先按开怪键（如月火术）再走过去
@@ -352,6 +363,7 @@ DEFAULT_CONFIG: dict = {
         "stuck_s": 3.0,               # 按着前进 N 秒位置没变 → 跳/平移脱困，2 次无效 → 停止
         "move_eps": 0.03,             # 位置变化小于此值视为没动
         "home_on_start": True,        # v8.17 开始打怪时把当前位置记为中心（关掉 = 用上面保存的中心坐标）
+        "auto_switch_center": True,   # v8.46：离当前中心超出半径、但在另一个中心半径里 → 直接换成那个中心，不走回去
         "leash_ratio": 1.3,           # v8.17 点击模式：脱战追怪时离中心超过 半径×此值 → 放弃这只怪，走回中心
         "centers": [],                # v8.23 多中心巡逻 [[x, y, 地图], ...]；有 2 个以上：转一圈没找到怪 → 直线走去下一个，循环
     },

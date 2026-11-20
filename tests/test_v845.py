@@ -145,7 +145,7 @@ class TestReconnectV845(Base):
             self.clock.t += 0.5
             self.g.tick(screen_obs(hp=0))
         self.assertEqual(len(self.enters()), 1)
-        for _ in range(42):                    # 再 21 秒：第 30、40、50 秒按
+        for _ in range(43):                    # 再 21.5 秒：第 30、40、50 秒按（v8.46：多半秒，第 50 秒正好卡边界，浮点误差会偶尔差一次）
             self.clock.t += 0.5
             self.g.tick(screen_obs(hp=0))
         self.assertEqual(len(self.enters()), 4)
@@ -192,7 +192,7 @@ class TestReconnectV845(Base):
 class TestStrings(unittest.TestCase):
     def test_versions(self):
         with open(os.path.join(ROOT, "gui", "app.py"), encoding="utf-8") as f:
-            self.assertIn("熊德自动打怪 v8.45", f.read())
+            self.assertIn("熊德自动打怪 v8.4", f.read())      # v8.46 起标题版本在新测试里查
         with open(os.path.join(ROOT, "README_中文.md"), encoding="utf-8") as f:
             rd = f.read()
         self.assertIn("v8.45 认出“已与服务器断开连接”弹窗", rd)

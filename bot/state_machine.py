@@ -54,6 +54,7 @@ from .corpse import CorpseRunMixin  # noqa: E402
 from .multibear import MultiBearMixin  # noqa: E402
 from .tabsearch import TabSearchMixin  # noqa: E402
 from .reconnect import ReconnectMixin  # noqa: E402
+from .efficiency import ManaRestMixin, WalkFarMixin  # noqa: E402
 
 class State(str, Enum):
     SEARCHING = "寻找目标"
@@ -72,7 +73,7 @@ class State(str, Enum):
 ALIVE_KINDS = ("enemy", "unknown")
 
 
-class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin):
+class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, ManaRestMixin, WalkFarMixin):
     def __init__(self, cfg: dict, inp, log=print, clock=time.monotonic, screen_offset=(0, 0), beep=alarm, dlog=None):
         self.cfg = cfg
         self.inp = inp
@@ -187,6 +188,9 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin):
         self._mb_init()                  # v8.38：被多只怪打 → 临时变熊
         self._ts_init()                  # v8.40：Tab 找怪
         self._rc_init()                  # v8.44：断线自动重连
+        self.wf = None                   # v8.46：朝远处选中的怪走过去
+        self.rest_mode = None            # v8.46：RESTING 的子模式（post / mana）
+        self.mr_skip_until = -1e9        # v8.46：先回蓝再开怪
         now = clock()
         self.last_combat_time = now
         self.no_target_since: float | None = None
@@ -1083,6 +1087,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin):
         h, s, d = self.cfg["heal"], self.cfg["safety"], self.cfg["detect"]
         dead_pct = float(d["dead_pct"])
 
+        if self.wf and self.state != State.APPROACHING:
+            self._wf_end()                  # v8.46：不在接近目标了（被打/治疗/换目标）→ 松开前进键
         if self._reconnect_tick(obs, now):  # v8.44：断线/登录/选角色界面 → 每 10 秒按 Enter，进游戏后继续
             return
 
@@ -1280,7 +1286,10 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin):
         if obs.target_kind == "dead" and (obs.in_combat or hit):
             # v8.17：还在战斗中（多只怪）→ 不拾取不剥皮，先换正在打我的怪（尸体脱战后再捡）
             return self._combat_attacker(obs, now, hit, "目标死了但还在战斗中，换正在打我的怪（尸体脱战后再捡）")
-        if self._engage_first(obs, now, dead_pct, hit, ""):
+        mr = self._need_mana_rest(obs, now, hit)     # v8.46：蓝不够、血也低 → 先回蓝，不拉新怪（有尸体先捡）
+        if mr and not self.pending_loot and obs.target_kind != "dead":
+            return self._start_mana_rest(obs, now)
+        if not mr and self._engage_first(obs, now, dead_pct, hit, ""):
             return                      # v8.32：非战斗看到能打的怪 → 先打
         if self._pending_loot_step(obs, now, dead_pct, hit):
             return
@@ -1327,6 +1336,9 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin):
             self._reset_target_tracking(now)
             self.last_target_hp = obs.target_hp
             self.last_combat_time = now
+            if not hit_click and self._wf_want(obs, hit):
+                self.last_target_plate = obs.selected_plate
+                return self._wf_start(obs, now)      # v8.46：怪远 → 先走过去，不按开怪键、不右键
             if self.cfg.get("move", {}).get("opener_first"):
                 self.inp.press(k["attack"])
                 self.opened = True
@@ -2457,7 +2469,38 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin):
                             f"按 {self._hk('hotkey_set_home', 'f8')} 把当前位置设为新中心），暂时不管范围")
             return False
         self._area_warned = ""
-        return distance(obs.pos, self.home[:2]) > float(a["radius"]) * ratio
+        if distance(obs.pos, self.home[:2]) <= float(a["radius"]) * ratio:
+            return False
+        return not self._auto_switch_center(obs, ratio)
+
+    def _auto_switch_center(self, obs, ratio=1.0, why="") -> bool:
+        """v8.46（t185u）就近切换中心：脱战、离当前中心超出半径（×ratio），但人在另一个（同地图）中心的半径（×ratio）里
+        → 当前中心直接换成那个（几个都在 → 最近的），不走回原来的。去下一个中心的路上（travel）不换。
+        追怪上限检查（ratio>1）也用：离当前中心超过追怪上限、但在另一个中心半径里 → 换过去，接着追。
+        来回走的方向：换到编号大的 → 接着往大走；换到编号小的 → 接着往小走；到头就掉头（1→2→3→2→1 照旧）。"""
+        a = self.cfg.get("area", {})
+        if not a.get("auto_switch_center", True) or self.travel or obs.in_combat or obs.pos is None \
+                or len(self.centers) < 2 or self.home is None:
+            return False
+        lim = float(a["radius"]) * min(1.0, ratio)    # 追怪上限（×2）检查时也只认“在另一个中心半径里”，免得越追越远
+        cand = [(distance(obs.pos, c[:2]), i) for i, c in enumerate(self.centers)
+                if i != self.ci and self._same_map(c, obs.map_id)]
+        cand = [(d, i) for d, i in cand if d <= lim]
+        if not cand:
+            return False
+        d, j = min(cand)
+        old = self.ci
+        n = len(self.centers)
+        self.cdir = 1 if j > old else -1
+        if j >= n - 1:
+            self.cdir = -1
+        elif j <= 0:
+            self.cdir = 1
+        self.ci, self.home = j, self.centers[j]
+        self.patrol_skips = 0
+        self._spin_reset()
+        self.log(f"🚩 已在中心 #{j + 1} 范围内（离它 {d:.2f}，半径 {lim:.2f}）→ 切换，不走回 #{old + 1}{why}")
+        return True
 
     def start_return(self, obs):
         a = self.cfg["area"]
@@ -2543,6 +2586,12 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin):
                 self.state = State.SEARCHING
             return
         self.pos_missing_since = None
+        if not self.travel and self._auto_switch_center(obs, why="（走回去的路上）"):
+            self._stop_walk()               # v8.46：走回原中心的路上进了另一个中心的范围 → 就在这里找怪
+            self.state = State.SEARCHING
+            self.no_target_since = None
+            self.last_combat_time = now
+            return
         d = distance(obs.pos, center)
         if d <= float(a["radius"]) * float(a.get("arrive_ratio", 0.5)):
             self._stop_walk()
@@ -2617,8 +2666,11 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin):
         if not obs.in_combat and not self.travel and self._outside_area(obs, float(self.cfg.get("area", {}).get("leash_ratio", 1.3))):
             # v8.17：追怪追出范围太远（还没开打）→ 放弃这只，走回中心
             self.log("🧭 追怪追出范围太远（还没进战斗）→ 放弃这只怪，走回中心")
+            self._wf_end()
             self._clear_target(obs)
             return self.start_return(obs)
+        if self._wf_step(obs, now):
+            return                          # v8.46：还在朝远处的怪走
         if obs.in_combat or obs.range == "melee" or obs.target_hp < self.last_target_hp - 0.5:
             self.log("进入战斗")
             dropped = obs.target_hp < self.last_target_hp - 0.5
@@ -3226,6 +3278,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin):
         v8：刚杀完怪残留的“战斗中”不打断；只有真的在掉血/怪在打我才变熊迎战；法力读不到不挡治疗。"""
         if getattr(self, "rest_mode", None) == "post":
             return self._post_heal(obs, now)
+        if getattr(self, "rest_mode", None) == "mana":
+            return self._mana_rest(obs, now)            # v8.46：先回蓝再开怪
         h, k = self.cfg["heal"], self.cfg["keys"]
         target = float(h.get("rest_to_pct", 90))
         if obs.in_combat:
