@@ -2725,7 +2725,7 @@ class TestV827Keys(unittest.TestCase):
         self.assertEqual(cfg["keys"]["healing_touch"], "e")
         self.assertEqual(cfg["keys"]["cat_finisher"], "1")
         self.assertTrue(cfg["heal"]["post_enabled"])
-        self.assertEqual(cfg["heal"]["post_ht_below_pct"], 70)
+        self.assertEqual(cfg["heal"]["post_ht_below_pct"], 60)          # v8.47：70 → 60
         self.assertEqual(key_conflicts(cfg), [])
         again = _migrate(_merge(DEFAULT_CONFIG, cfg), cfg)    # 只改一次：之后用户自己改的键不再被改
         self.assertEqual(again["keys"]["interact"], "`")

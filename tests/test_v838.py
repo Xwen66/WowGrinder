@@ -46,7 +46,7 @@ class MultiBear(PostBase):
 
     def test_defaults(self):
         mb = DEFAULT_CONFIG["multi_bear"]
-        self.assertTrue(mb["enabled"])
+        self.assertFalse(mb["enabled"])                                   # v8.47：默认关
         self.assertEqual((mb["fast_drop_pct"], mb["maul_key"], mb["min_mana_pct"]), (20, "1", 40))
         self.assertEqual(set(MB_DEFAULTS), set(mb))
         self.assertEqual(DEFAULT_CONFIG["heal"]["heal_pct"], 40)          # v8.46：30 → 40
@@ -187,7 +187,7 @@ class MultiBear(PostBase):
     def test_old_config_gets_section(self):
         loaded = {"cat": {"combat_form": "猎豹"}}
         cfg = _migrate(_merge(DEFAULT_CONFIG, loaded), loaded)
-        self.assertTrue(cfg["multi_bear"]["enabled"])
+        self.assertFalse(cfg["multi_bear"]["enabled"])                     # v8.47：默认关
         self.assertEqual(cfg["safety"]["error_retry_max"], 5)
 
 

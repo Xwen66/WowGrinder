@@ -191,6 +191,9 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.wf = None                   # v8.46：朝远处选中的怪走过去
         self.rest_mode = None            # v8.46：RESTING 的子模式（post / mana）
         self.mr_skip_until = -1e9        # v8.46：先回蓝再开怪
+        self.spell_t = -1e9              # v8.47：最近一次在治疗/回春术/补 buff/跑尸复活（3 秒内变身不测耗蓝）
+        self.shift_samples = {}          # v8.47：实测变身耗蓝 最近 3 次（取中位数）
+        self.lm_prev_cast = False        # v8.47：上一帧在读条
         now = clock()
         self.last_combat_time = now
         self.no_target_since: float | None = None
@@ -698,6 +701,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         st = self.cfg.get("scan", {})
         if not self.stationary:      # v8.28：连续 patrol_frames 帧都看到能点的标记才停
             self.travel_seen = self.travel_seen + 1 if self._clickable(obs, now) else 0
+        if self._pull_mana_low(obs, now):
+            return False                 # v8.47：蓝不到开怪线 → 路上不停下打，走到中心再回蓝
         if now - self.travel_look_t < float(st.get("patrol_look_s", 1.0)):
             return False
         dead_pct = float(self.cfg.get("detect", {}).get("dead_pct", 1.0))
@@ -915,7 +920,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         h = self.cfg["heal"]
         if self._post_on():
             # v8.27：每次战斗结束治疗一次（< 70% 生命之触 / 70-99% 回春术 / 满血不治疗）
-            if not getattr(self, "post_due", False) or obs.player_hp >= 99.5 or obs.player_hp <= 0:
+            if not getattr(self, "post_due", False) or obs.player_hp >= self._post_skip_line() or obs.player_hp <= 0:
                 return False
             if self._rejuv_cd_skip(obs):
                 return False
@@ -987,19 +992,35 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             self.cast_peak = obs.mana if self.cast_peak is None else max(self.cast_peak, obs.mana)
 
     def _learn_mana(self, obs):
-        """实测变身耗蓝：上一帧人形 → 这一帧猎豹/熊，法力掉了多少。"""
+        """实测变身耗蓝：上一帧人形 → 这一帧猎豹/熊，法力掉了多少。
+        v8.47（t189u/t190u）：治疗之触读条超时还在读、刚放完回春术、刚复活回蓝 时变身会把别的蓝算进去（测出 45-48%，
+        变身预留被抬到 50%，挡掉了好几次救命的治疗）→ 3 秒内有治疗/回春/补 buff/复活、上一帧在读条 → 不测；
+        取最近 3 次的中位数，最多 = 设置的预留 + reserve_learn_cap_pct（默认 8）。"""
         mana, form = obs.mana, obs.form
         pf, pm = self.prev_form, self.prev_mana
+        prev_cast, self.lm_prev_cast = self.lm_prev_cast, bool(obs.casting)
         self.prev_form, self.prev_mana = form, mana
         if pf != "caster" or form not in ("cat", "bear") or not pm or not mana or mana <= 0:
             return
         drop = pm - mana
-        if 5 <= drop <= 70:
-            old = self.mana_cost.get("shift_" + form)
-            self.mana_cost["shift_" + form] = drop
-            if old is None or abs(old - drop) >= 3:
-                cn = "猎豹" if form == "cat" else "熊"
-                self.log(f"🔋 实测变{cn}耗蓝约 {drop:.0f}%（{pm:.0f}% → {mana:.0f}%）；变身预留 = {self._reserve(form):.0f}%")
+        if not 5 <= drop <= 70:
+            return
+        if prev_cast or obs.casting or self.heal_inflight or self.clock() - self.spell_t < 3.0:
+            self.dlog(f"[法力] 变{'猎豹' if form == 'cat' else '熊'}掉了 {drop:.0f}%，但刚治疗/回春/复活或还在读条 → 不算变身耗蓝")
+            return
+        h = self.cfg["heal"]
+        base = float(h.get("reserve_cat_pct" if form == "cat" else "reserve_bear_pct", 30) or 0)
+        cap = base + float(h.get("reserve_learn_cap_pct", 8) or 0) if base > 0 else 70.0
+        sm = (self.shift_samples.get(form, []) + [drop])[-3:]
+        self.shift_samples[form] = sm
+        med = sorted(sm)[len(sm) // 2] if len(sm) % 2 else sum(sorted(sm)[len(sm) // 2 - 1:len(sm) // 2 + 1]) / 2
+        val = min(med, cap)
+        old = self.mana_cost.get("shift_" + form)
+        self.mana_cost["shift_" + form] = val
+        drop = val
+        if old is None or abs(old - drop) >= 3:
+            cn = "猎豹" if form == "cat" else "熊"
+            self.log(f"🔋 实测变{cn}耗蓝约 {drop:.0f}%（这次 {pm:.0f}% → {mana:.0f}%，最近 {len(sm)} 次中位数，上限 {cap:.0f}%）；变身预留 = {self._reserve(form):.0f}%")
 
     def _learn_cost(self, kind, before, obs, lo=3, hi=60):
         peak, self.cast_peak = self.cast_peak, None
@@ -1144,6 +1165,9 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.prev_hp = obs.player_hp
         self._calibrate_turn(obs, now)
         self._fix_attacker_kind(obs)
+        if obs.casting or self.heal_inflight or self.state in (State.HEALING, State.BUFFING, State.CORPSE) \
+                or (self.state == State.RESTING and getattr(self, "rest_mode", None) == "post"):
+            self.spell_t = now               # v8.47：刚治疗/回春/补 buff/复活 → 3 秒内变身不测耗蓝
         self._learn_mana(obs)
         self._track_cast_peak(obs)
         self._area_tick(obs, now)
@@ -1264,6 +1288,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
 
         hit = bool(obs.in_combat) and self._being_hit(obs)
         self._log_plate_source(obs)
+        if self.far is not None and not obs.in_combat and not hit and self._pull_mana_low(obs, now):
+            self._far_end("法力低于开怪线，先回蓝", skip=False)     # v8.47
         if self.far is not None:
             if not obs.in_combat and not hit and self._ts_moving(obs, now, dead_pct, "朝远处走"):
                 return                  # v8.40：移动中 Tab 选中合格的怪 → 已停下，下一帧开打
@@ -3120,6 +3146,14 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.heal_phase = "cast"
         self.log(f"🩹 血量 {hp:.0f}% < 回复线 {to:.0f}% → 留在人形，继续放治疗之触（第 {self.heal_chain} 个）")
         return True
+
+    def _post_skip_line(self) -> float:
+        """v8.47（t190u）：战后血量 ≥ 这个 → 不治疗（默认 85；以前只有满血不治疗）。"""
+        try:
+            v = float(self.cfg["heal"].get("post_rejuv_below_pct", 85))
+        except (TypeError, ValueError):
+            v = 85.0
+        return min(99.5, v) if v > 0 else 99.5
 
     def _post_on(self) -> bool:
         return bool(self.cfg["heal"].get("post_enabled", True))

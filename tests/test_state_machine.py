@@ -112,6 +112,9 @@ class Base(unittest.TestCase):
         n.update(verify_s=0, bad_s=0, skip_top_pct=0, patrol_frames=1, far_names=False, stop_settle_s=0)
         if self.LEGACY:
             self.cfg["heal"]["heal_to_pct"] = 0                # v8.11 前：战斗治疗只放一个
+        # v8.47：旧测试保留旧默认（战后 <70% 生命之触 / 其余回春 / 满血不治疗；没有开怪蓝线；多怪变熊开），新行为见 test_v847
+        self.cfg["heal"].update(post_ht_below_pct=70, post_rejuv_below_pct=100, pull_min_mana_pct=0)
+        self.cfg["multi_bear"]["enabled"] = True
         self.clock = Clock()
         self.inp = FakeInput(self.cfg, self.clock)
         self.logs = []

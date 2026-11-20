@@ -13,7 +13,9 @@ MR_DEFAULTS = {
     "mana_rest_hp_ok": 90.0,       # 回蓝途中血回到这个也算好了
     "mana_rest_timeout_s": 120.0,  # 最多等这么久
     "drink_key": "",               # 喝水键（空 = 不喝，原地等回蓝）
+    "pull_min_mana_pct": 50.0,     # v8.47：脱战时法力低于这个就不开怪，先回蓝（不管血量）
 }
+FLOOR_TIMEOUT_S = 300.0            # v8.47：只因为“法力 < 开怪线”在回蓝时，最多等这么久（防止读数异常卡死）
 WF_DEFAULTS = {
     "walk_far": True,              # 怪远就先走过去再开打
     "walk_far_max_s": 15.0,        # 最多走这么久
@@ -31,6 +33,36 @@ class ManaRestMixin:
     def _mr_need(self) -> float:
         return self._reserve() + self._cost("heal") + float(self._mr_cfg()["mana_rest_margin_pct"])
 
+    def _mr_floor(self) -> float:
+        try:
+            return max(0.0, float(self._mr_cfg().get("pull_min_mana_pct", 50) or 0))
+        except (TypeError, ValueError):
+            return 50.0
+
+    def _pull_mana_low(self, obs, now=None) -> bool:
+        """v8.47（t190u）：脱战、插件读得到法力、法力 < 开怪线（默认 50%）→ 不开新怪（Tab/看到的怪/远处的怪）。被打不管。"""
+        c = self._mr_cfg()
+        if not c["mana_rest_enabled"] or obs.in_combat or obs.source != "addon":
+            return False
+        now = self.clock() if now is None else now
+        if now < getattr(self, "mr_skip_until", -1e9):
+            return False
+        if obs.mana is None or obs.mana <= 0 or obs.player_hp <= 0:
+            return False
+        return obs.mana < self._mr_floor()
+
+    def _mr_low_hp_rule(self, obs) -> bool:
+        """v8.46：血低（< mana_rest_hp_below）+ 蓝不够 变身预留 + 治疗之触 + 余量。"""
+        c = self._mr_cfg()
+        return obs.player_hp < float(c["mana_rest_hp_below"]) and obs.mana is not None and obs.mana < self._mr_need()
+
+    def _mr_target(self, obs) -> float:
+        """回蓝回到多少：开怪线；血还低（< mana_rest_hp_ok）且是因为血低开始回的 → 还要够 变身预留 + 治疗之触 + 余量。"""
+        t = self._mr_floor()
+        if getattr(self, "mr_hp_rule", False) and obs.player_hp < float(self._mr_cfg()["mana_rest_hp_ok"]):
+            t = max(t, self._mr_need())
+        return t
+
     def _need_mana_rest(self, obs, now, hit=False) -> bool:
         c = self._mr_cfg()
         if not c["mana_rest_enabled"] or obs.in_combat or hit or obs.source != "addon":
@@ -39,9 +71,9 @@ class ManaRestMixin:
             return False
         if not getattr(obs, "hp_readable", True) or obs.player_hp <= 0 or obs.mana is None or obs.mana <= 0:
             return False
-        if obs.player_hp >= float(c["mana_rest_hp_below"]):
-            return False
-        return obs.mana < self._mr_need()
+        if obs.mana < self._mr_floor():
+            return True                     # v8.47：法力 < 开怪线 → 不管血量，先回蓝
+        return self._mr_low_hp_rule(obs)
 
     def _start_mana_rest(self, obs, now):
         from .state_machine import State
@@ -52,14 +84,20 @@ class ManaRestMixin:
             self.far = None
         drink = str(c.get("drink_key") or "").strip()
         need = self._mr_need()
+        floor = self._mr_floor()
         self.rest_mode = "mana"
         self.state = State.RESTING
         self.mr_t0, self.mr_drank, self.mr_shift_t, self.mr_note_t = now, False, -1e9, now
-        self.log(f"💤 先回蓝再开怪：血量 {obs.player_hp:.0f}% < {float(c['mana_rest_hp_below']):.0f}%，法力 {obs.mana:.0f}% < "
-                 f"{need:.0f}%（变{self._cform_cn()}预留 {self._reserve():.0f}% + 治疗之触约 {self._cost('heal'):.0f}% + 余量 "
-                 f"{float(c['mana_rest_margin_pct']):.0f}%）→ 不拉新怪，"
-                 + (f"人形喝水「{drink}」" if drink else "原地等回蓝（不变形，省变身的蓝）")
-                 + f"；到 {need:.0f}% 或血量 ≥ {float(c['mana_rest_hp_ok']):.0f}% 再找怪；被打照常迎战")
+        self.mr_hp_rule = self._mr_low_hp_rule(obs)
+        how = (f"人形喝水「{drink}」" if drink else "原地等回蓝（不变形，省变身的蓝）")
+        if self.mr_hp_rule:
+            self.log(f"💤 先回蓝再开怪：血量 {obs.player_hp:.0f}% < {float(c['mana_rest_hp_below']):.0f}%，法力 {obs.mana:.0f}% < "
+                     f"{need:.0f}%（变{self._cform_cn()}预留 {self._reserve():.0f}% + 治疗之触约 {self._cost('heal'):.0f}% + 余量 "
+                     f"{float(c['mana_rest_margin_pct']):.0f}%）→ 不拉新怪，{how}"
+                     f"；到 {max(need, floor):.0f}%（血量 ≥ {float(c['mana_rest_hp_ok']):.0f}% 时到 {floor:.0f}%）再找怪；被打照常迎战")
+        else:
+            self.log(f"💤 先回蓝再开怪：法力 {obs.mana:.0f}% < 开怪线 {floor:.0f}% → 不拉新怪，{how}"
+                     f"；回到 {floor:.0f}% 再找怪；被打照常迎战")
         self._event("mana_rest", f"血 {obs.player_hp:.0f}% 蓝 {obs.mana:.0f}% → 先回蓝")
 
     def _mana_rest_end(self, obs, now, msg):
@@ -86,15 +124,20 @@ class ManaRestMixin:
                 self._to_bear(obs)
             self.state = State.SEARCHING
             return
-        need = self._mr_need()
+        need = self._mr_target(obs)
+        floor = self._mr_floor()
         mana = obs.mana
         if mana is not None and mana >= need:
+            if need <= floor and getattr(self, "mr_hp_rule", False) and obs.player_hp >= float(c["mana_rest_hp_ok"]):
+                return self._mana_rest_end(obs, now, f"💤 血量回到 {obs.player_hp:.0f}%、法力 {mana:.0f}% ≥ 开怪线 {floor:.0f}%"
+                                                     f"（用了 {now - self.mr_t0:.0f} 秒）→ 继续找怪")
             return self._mana_rest_end(obs, now, f"💤 回蓝完成：法力 {mana:.0f}% ≥ {need:.0f}%（用了 {now - self.mr_t0:.0f} 秒）→ 继续找怪")
-        if obs.player_hp >= float(c["mana_rest_hp_ok"]):
-            return self._mana_rest_end(obs, now, f"💤 血量回到 {obs.player_hp:.0f}%（法力 {mana}）→ 不等蓝了，继续找怪")
-        if now - self.mr_t0 > float(c["mana_rest_timeout_s"]):
+        limit = float(c["mana_rest_timeout_s"])
+        if mana is not None and mana < floor:
+            limit = max(limit, FLOOR_TIMEOUT_S)     # v8.47：法力不到开怪线 → 多等（最多 300 秒）
+        if now - self.mr_t0 > limit:
             self.mr_skip_until = now + 60.0
-            return self._mana_rest_end(obs, now, f"⚠️ 回蓝 {float(c['mana_rest_timeout_s']):.0f} 秒还没到 {need:.0f}%（法力 {mana}）"
+            return self._mana_rest_end(obs, now, f"⚠️ 回蓝 {limit:.0f} 秒还没到 {need:.0f}%（法力 {mana}）"
                                                  "→ 不等了，继续找怪；60 秒内不再停下回蓝")
         drink = str(c.get("drink_key") or "").strip()
         if drink and not self.mr_drank:

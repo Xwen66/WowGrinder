@@ -315,7 +315,7 @@ class Strings(unittest.TestCase):
     def test_gui_and_readme(self):
         with open(os.path.join(ROOT, "gui", "app.py"), encoding="utf-8") as f:
             app = f.read()
-        self.assertIn("熊德自动打怪 v8.46", app)
+        self.assertIn("熊德自动打怪 v8.4", app)      # v8.47 起标题版本在新测试里查
         for s in ('"auto_switch_center"', '"mana_rest_enabled"', '"mana_rest_hp_below"', '"mana_rest_margin_pct"',
                   '"mana_rest_hp_ok"', '"drink_key"', '"mana_rest_timeout_s"', '"walk_far"', '"walk_far_max_s"'):
             self.assertIn(s, app)

@@ -87,7 +87,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.46")
+        self.title("WowGrinder 熊德自动打怪 v8.47")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -364,13 +364,15 @@ class App(tk.Tk):
         self._field(f, r + 16, "杀完怪残留战斗最多等(秒)", "loot", "residual_wait_s", "float",
                     tip="v8.17：杀完怪还显示战斗中但没掉血 → 等这么久再按 x 找怪（掉血马上找）；战斗中一律不拾取/剥皮")
         self._field(f, r + 18, "战后治疗（每次战斗结束）", "heal", "post_enabled", "bool",
-                    tip="v8.27：血量 < 下面的线 → 生命之触（读完再打）；否则 < 100% → 回春术；满血不治疗；蓝不够变身就跳过")
+                    tip="v8.27：血量 < 生命之触线 → 生命之触（读完再打）；< 回春术线 → 回春术；更高不治疗；蓝不够变身就跳过")
         self._field(f, r + 19, "战后放回春术", "heal", "post_rejuv_enabled", "bool",
                     tip="关 = 战后只在血量 < 生命之触线(默认70%)时放生命之触，高于就直接继续打；战斗中紧急治疗不受影响")
         self._field(f, r + 21, "回春术冷却：几秒内不重复放(秒)", "heal", "rejuv_no_repeat_s", "float",
                     tip="v8.30：上次回春术放完不到这么多秒（身上还有）→ 战后不再放、也不变形；默认 12，0 = 不限制")
         self._field(f, r + 20, "低于多少用生命之触(%)", "heal", "post_ht_below_pct", "int",
-                    tip="默认 70；开了战后治疗，上面的“脱战低于多少才回血/回血最长”就不用了")
+                    tip="v8.47 默认 60；开了战后治疗，上面的“脱战低于多少才回血/回血最长”就不用了")
+        self._field(f, r + 25, "低于多少用回春术(%)（v8.47）", "heal", "post_rejuv_below_pct", "int",
+                    tip="战后血量在 生命之触线 ~ 这个 之间放回春术；≥ 这个就不治疗（默认 85）")
         self._field(f, r + 17, "移动方式", "move", "mode", choices=["stationary_tab", "click"],
                     tip="click=点击移动走过去（你现在用的）/ stationary_tab=原地 + Tab（选 click 时隐藏“原地打怪”页）")
         ttk.Label(f, text="—— 自动补 buff（需要插件 v0.8）——").grid(row=r + 1, column=3, columnspan=2, sticky="w", padx=8)
@@ -451,6 +453,8 @@ class App(tk.Tk):
         self._field(g, 13, "回蓝时血回到(%)也算好", "heal", "mana_rest_hp_ok", "float", col=3, tip="默认 90")
         self._field(g, 14, "回蓝最多等(秒)", "heal", "mana_rest_timeout_s", "float", col=3, tip="默认 120；超时继续打，60 秒内不再停")
         self._field(g, 15, "喝水键", "heal", "drink_key", "str", col=3, tip="空 = 不喝水，原地等（不变形，省变身的蓝）")
+        self._field(g, 16, "开怪最低法力(%)（v8.47）", "heal", "pull_min_mana_pct", "float", col=3,
+                    tip="脱战时法力低于这个就不开新怪（Tab/看到的/远处的都不开），先回蓝到这个，不管血量；被打照常迎战。默认 50，0 = 不限制")
         self._field(g, 1, "战后回血到(%)", "heal", "rest_to_pct", "int", tip="血量低于“脱战低于多少才回血”时，人形回血到此血量")
         self._field(g, 2, "战斗识别方式", "detect", "combat_mode", choices=["template", "color", "none"],
                     tip="template=匹配 combat.png；color=区域内红色比例；none=不识别")

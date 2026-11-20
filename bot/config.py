@@ -103,7 +103,8 @@ DEFAULT_CONFIG: dict = {
         # v8.27 战后治疗：每次战斗结束治疗一次（代替旧的“低于 60% 才人形回血到 90%”）
         "post_enabled": True,     # 开 = 血量 < post_ht_below_pct 按生命之触（治疗之触键），否则 < 100% 按回春术键；满血不治疗
         "post_rejuv_enabled": True,  # v8.36：关 = 战后不放回春术（血量 ≥ post_ht_below_pct 就直接继续打；低于照样生命之触）
-        "post_ht_below_pct": 70,  # 低于此血量用生命之触（读条，挨打也读完），高于用回春术
+        "post_ht_below_pct": 60,  # 低于此血量用生命之触（读条，挨打也读完），高于用回春术（v8.47：70 → 60）
+        "post_rejuv_below_pct": 85,  # v8.47：战后 生命之触线 ~ 这个之间用回春术；≥ 这个 → 战后不治疗
         "rejuv_cost_pct": 12,     # 回春术大约耗多少 %（实测后自动更新）
         "rejuv_no_repeat_s": 12,  # v8.30：回春术放完 N 秒内（持续时间）战后不再放回春术，也不变形；0 = 不限制
         "heal_cost_pct": 20,      # 一个治疗之触大约耗多少 %（实测后自动更新，日志里实测约 18-28%）
@@ -116,6 +117,8 @@ DEFAULT_CONFIG: dict = {
         "mana_rest_hp_ok": 90,
         "mana_rest_timeout_s": 120,
         "drink_key": "",          # 喝水键（动作条上放水/食物的键）；空 = 不喝，原地等
+        "pull_min_mana_pct": 50,  # v8.47：脱战时法力低于这个 → 不开新怪（Tab/看到的怪/远处的怪都不开），先回蓝到这个；被打照常迎战
+        "reserve_learn_cap_pct": 8,  # v8.47：实测变身耗蓝取最近 3 次中位数，最多 = 变身预留设置 + 这个
     },
     "cat": {
         # v8.15 猎豹形态循环（插件 v0.9 能读到连击点/能量就用读数；读不到就按次数轮转）
@@ -132,7 +135,7 @@ DEFAULT_CONFIG: dict = {
     },
     "multi_bear": {
         # v8.38 战斗形态=猎豹时：判断同时被多只怪打 → 变熊抗；只剩 1 只（杀了一只后一段时间没再判断到）或脱战 → 变回猎豹
-        "enabled": True,          # 开关（GUI“技能循环”页）
+        "enabled": False,         # 开关（GUI“技能循环”页）；v8.47 默认关：来回变身太费蓝
         "fast_drop_pct": 20,      # 判断 1：最近 fast_window_s 秒内自己掉血 ≥ 这么多 %（单只同级怪一般 5 秒掉不到 10%）
         "fast_window_s": 5.0,
         "other_hits": 2,          # 判断 2：选中的怪没在打我（目标的目标不是我），但我还在掉血，fast_window_s 秒内 ≥ N 次

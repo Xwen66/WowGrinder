@@ -96,7 +96,8 @@ class BotRunner:
         hl0 = cfg["heal"]
         dlog(f"v8.27 战后治疗={'开' if hl0.get('post_enabled', True) else '关'}：血量 < {hl0.get('post_ht_below_pct', 70)}% "
              f"生命之触「{cfg['keys'].get('healing_touch')}」/ 否则 "
-             + (f"< 100% 回春术「{cfg['keys'].get('rejuvenation')}」/ 满血不治疗；" if hl0.get("post_rejuv_enabled", True)
+             + (f"< {hl0.get('post_rejuv_below_pct', 85)}% 回春术「{cfg['keys'].get('rejuvenation')}」/ 更高不治疗；"
+                if hl0.get("post_rejuv_enabled", True)
                 else "不治疗（v8.36 战后放回春术=关）；")
              + f"互动键「{cfg['keys'].get('interact')}」")
         nc0 = cfg.get("nameplate", {})

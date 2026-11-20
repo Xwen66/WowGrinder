@@ -216,6 +216,8 @@ class TabSearchMixin:
         """走路时（巡逻/回中心/朝远处走）调用。返回 True = 选中合格的怪，已经停下、转到找怪状态（下一帧走原来的开打流程）。"""
         if obs.in_combat or not self._ts_on(obs, moving=True):
             return False
+        if self._pull_mana_low(obs, now):
+            return False                 # v8.47：蓝不到开怪线 → 走路时不按 Tab 拉怪
         c = self._ts_cfg()
         if self.ts_pend is None and obs.target_exists and now >= self.ts_ignore_until \
                 and now - self.ts_last_press < 2.0:

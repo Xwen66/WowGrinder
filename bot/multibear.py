@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections import deque
 
 MB_DEFAULTS = {
-    "enabled": True,
+    "enabled": False,       # v8.47（t190u）：默认关 —— 来回变身太费蓝，一直用猎豹
     "fast_drop_pct": 20,
     "fast_window_s": 5.0,
     "other_hits": 2,
