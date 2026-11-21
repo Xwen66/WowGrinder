@@ -383,6 +383,12 @@ DEFAULT_CONFIG: dict = {
         "bagfull_detect": True,   # v8.29：连按互动键没反应 → 认定背包满，本次运行关掉拾取/剥皮，只打怪
         "bagfull_presses": 5,     # v8.29：连续几次没反应算背包满（没读条、尸体一直“可拾取”）
         "bagfull_two_corpses": False,  # v8.29：要两具尸体都这样才认定（更保险，默认关）
+        "full_bag_money_only": True,   # v8.48：背包满了还拾取（只拿到钱，物品不等），不剥皮，记住捡过的尸体
+        "full_bag_wait_ms": 500,       # v8.48：背包满时按完拾取等多久（钱自动拾取）
+        "full_bag_close_key": "esc",   # v8.48：关拾取窗口的键（只在选中尸体时按，不会开游戏菜单）
+        "full_bag_close_s": 1.5,       # v8.48：按完拾取多久内看到选中的尸体才按关窗口键
+        "full_bag_memory_s": 300,      # v8.48：捡过钱的尸体记多久（不再回去捡）
+        "full_bag_memory_dist": 0.15,  # v8.48：离捡过的位置这么近（地图坐标 0-100）算同一具尸体
     },
     "regions": {
         "player_hp": [0, 0, 0, 0],

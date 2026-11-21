@@ -118,7 +118,9 @@ class BotRunner:
              f"到点 {cr0.get('route_arrive_dist', 0.15)} 抄近路 {cr0.get('route_shortcut_dist', 1.0)}")
         lt0 = cfg.get("loot", {})
         dlog(f"v8.29 背包满检测={'开' if lt0.get('bagfull_detect', True) else '关'}：连续 {lt0.get('bagfull_presses', 5)} 次按互动键没反应 → 关掉拾取/剥皮只打怪"
-             f"（两具尸体确认={'开' if lt0.get('bagfull_two_corpses', False) else '关'}）")
+             f"（两具尸体确认={'开' if lt0.get('bagfull_two_corpses', False) else '关'}）；"
+             f"v8.48 背包满只捡钱={'开' if lt0.get('full_bag_money_only', True) else '关'}"
+             f"（不剥皮，捡过的尸体记 {lt0.get('full_bag_memory_s', 300)} 秒）")
         from .config import key_conflicts
         for c in key_conflicts(cfg):
             log(f"⚠️ 键位冲突：{c}，请在“基本设置”页改一个")

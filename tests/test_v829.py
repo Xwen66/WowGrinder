@@ -14,6 +14,10 @@ class BagBase(Base):
     LEGACY = False
     MODE = "click"
 
+    def setUp(self):
+        super().setUp()
+        self.cfg["loot"]["full_bag_money_only"] = False      # v8.48 前的行为：背包满只打怪
+
     def fpress(self):
         return self.keys().count("f")
 

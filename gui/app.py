@@ -87,7 +87,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.47")
+        self.title("WowGrinder 熊德自动打怪 v8.48")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -357,6 +357,8 @@ class App(tk.Tk):
         self._field(f, r + 23, "连续几次没反应算满", "loot", "bagfull_presses", "int", tip="默认 5（拾取+剥皮各算一次）")
         self._field(f, r + 24, "两具尸体都没反应才算满", "loot", "bagfull_two_corpses", "bool",
                     tip="更保险：第一具先放弃，下一具也连按没反应才认定背包满（默认关）")
+        self._field(f, r + 26, "背包满了只捡钱（v8.48）", "loot", "full_bag_money_only", "bool",
+                    tip="背包满了还按互动键拾取（钱自动进包），物品不等、马上关拾取窗口；不剥皮；捡过的尸体 5 分钟内不再捡。关掉 = 以前的只打怪")
         self._field(f, r + 13, "脱战低于多少才回血(%)", "heal", "rest_below_pct", "int",
                     tip="高于这个血量就保持熊形态直接找下一只（默认 60）")
         self._field(f, r + 14, "没目标时点姓名板选怪", "stationary", "plate_click", "bool",

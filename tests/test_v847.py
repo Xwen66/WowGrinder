@@ -224,7 +224,7 @@ class Strings(unittest.TestCase):
     def test_gui_and_readme(self):
         with open(os.path.join(ROOT, "gui", "app.py"), encoding="utf-8") as f:
             app = f.read()
-        self.assertIn("熊德自动打怪 v8.47", app)
+        self.assertIn("熊德自动打怪 v8.4", app)      # v8.48 起标题版本在新测试里查
         self.assertIn('"post_rejuv_below_pct"', app)
         self.assertIn('"pull_min_mana_pct"', app)
         with open(os.path.join(ROOT, "README_中文.md"), encoding="utf-8") as f:
