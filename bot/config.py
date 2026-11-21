@@ -355,8 +355,12 @@ DEFAULT_CONFIG: dict = {
         "far_click_frames": 1,        # 朝红名走时看到能点的标记几帧就停下点（v8.50：1 = 马上）
         "red_static_turns": 2,        # 朝红名转了这么多次它在屏幕上还不动 → 是界面，不是怪（这次运行都不再看那里）
         "red_static_px": 20,          # “不动”= 位置变化小于这么多像素
+        # v8.52：红名找怪跳过插件 v0.15 报告的界面框（头像/目标/动作条/小地图/聊天/任务追踪/buff/红字报错…），
+        # 不用再手写排除区；插件数据还没收到/旧插件 → 照旧用上面的 red_ui_exclude；界面隐藏（Alt+Z）→ 不排除
+        "use_addon_ui": True,
+        "ui_margin_px": 8,            # 插件报告的界面框四边各多排除这么多像素
         # v8.51：朝红名直走（不用转身）时：人在走（地图坐标在变）、“红名”在屏幕上却几乎不动 → 是界面
-        "red_walk_static_s": 2.0,     # 这么多秒内“红名”一直不动（0 = 不检测）
+        "red_walk_static_s": 0.0,     # 这么多秒内“红名”一直不动（0 = 不检测；v8.52 默认关，有插件界面框就够了；想要填 2）
         "red_walk_static_px": 5,      # “不动”= 离一开始的位置小于这么多像素（远处真怪走近也会挪几像素，界面一点不动）
         "red_walk_min_move": 0.15,    # 这段时间里人至少走了这么远（地图坐标；卡住不走不算）
         "red_walk_bad_s": 120.0,      # 第 1 次认定：这么久内不再朝那里走
@@ -381,6 +385,7 @@ DEFAULT_CONFIG: dict = {
         "block": 10,                  # 色块边长
         "calib_tolerance": 12,        # 校准灰偏离 128 超过此值 → 提示“伽马/亮度不是默认”（仅提示）
         "stale_s": 3.0,               # 心跳超过 N 秒不变 → 视为插件失联
+        "ui_stale_s": 5.0,            # v8.52：插件 v0.15 界面框这么久没读到 → 改用手动排除区
     },
     "area": {
         "enabled": False,             # 区域刷怪：脱战且离中心超过半径 → 走回中心（需要 BotStatus v0.5）
@@ -567,6 +572,9 @@ def _migrate(cfg: dict, loaded: dict) -> dict:
         if same:
             cfg["nameplate"]["red_ui_exclude"] = copy.deepcopy(DEFAULT_CONFIG["nameplate"]["red_ui_exclude"])
         done.append("red_ui_v851")
+    if "red_walk_v852" not in done:                  # v8.52：直走不动就拉黑 默认关（改用插件报告的界面框），只改一次
+        cfg["nameplate"]["red_walk_static_s"] = 0.0
+        done.append("red_walk_v852")
     if "keys_v827" not in done:                      # v8.27：g 改成回春术，互动/拾取键 g / · → `（只改一次）
         for name in ("interact", "loot"):
             if (keys.get(name) or "").strip().lower() in ("g", "`"):

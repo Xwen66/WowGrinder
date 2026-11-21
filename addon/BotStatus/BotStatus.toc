@@ -1,6 +1,6 @@
 ## Interface: 16001, 120105
 ## Title: BotStatus
 ## Notes: 把角色状态编码成屏幕左上角的色块，供 WowGrinder 读取
-## Version: 0.14.0
+## Version: 0.15.0
 ## Author: WowGrinder
 BotStatus.lua

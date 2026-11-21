@@ -2,6 +2,13 @@
 BotStatus：把角色状态画成屏幕左上角的纯色方块，给 WowGrinder（Python）截图读取。
 兼容《魔兽世界：无限》1.60.1（TOC 16001，带 Midnight 的"机密值/secret values"限制）。
 
+v0.15：给 WowGrinder v8.52 用：报告屏幕上看得见的界面框位置（红名找怪跳过这些地方，不用手写排除区）。
+      块 42 = R=1（v0.15 界面框功能），G=界面显示中（Alt+Z 隐藏 = 0），B=1（v0.15 签名）；
+      二进制 D 行 y=60..69：界面框个数 n(6 位，4 块) 版本号 gen(6 位，4 块)；
+      二进制 E1-E6 行 y=70..129：每行一个框：序号(6) 左 x(12) 上 y(12) 宽(12) 高(12)（物理像素） gen(6)，共 32 块；
+      每次 Update 换一页（每页 6 个框），Python 收齐同一个 gen 的 n 个框才换成新的一组。
+      界面隐藏（Alt+Z）时 n = 0。框 = UIParent 下面看得见、有内容的顶层框（头像/目标/动作条/小地图/聊天/任务追踪/buff/施法条…），
+      红字报错（UIErrorsFrame）只报最近 5 秒内报错文字实际占的那一块；每 1 秒和登录/改缩放/改分辨率时重算。
 v0.14：给 WowGrinder v8.49“自动进食”用：
       块 40 = 充分进食（Well Fed）buff（绿=有，黄=不到 60 秒，黑=没有，洋红=读不到）；
       块 41 = R=正在进食（身上有“进食/Food”光环），G=光环读得到，B=1（v0.14 签名）。
@@ -102,10 +109,12 @@ local frame = CreateFrame("Frame", "BotStatusFrame", nil) -- 不挂 UIParent：A
 frame:SetFrameStrata("TOOLTIP")
 frame:SetFrameLevel(9999)
 
-local NUM_BLOCKS = 42   -- v0.13：36-39 = 目标 玩家/精英/等级差；v0.14：40 充分进食，41 正在进食
+local NUM_BLOCKS = 43   -- v0.13：36-39 = 目标 玩家/精英/等级差；v0.14：40 充分进食，41 正在进食；v0.15：42 界面框签名
+local UI_ROWS, UI_BLOCKS, UI_MAX = 6, 32, 60   -- v0.15：每页 6 个框，每行 32 块，最多 60 个框
 local NUM_BARS = 4
 local BIN_A, BIN_B, BIN_C = 25, 25, 25
 local blocks, bars, binA, binB, binC = {}, {}, {}, {}, {}
+local binD = {}   -- v0.15：binD[0] = D 行（个数 + gen），binD[1..6] = E1-E6 行（每行一个界面框）
 
 local function PixelScale()
   local _, h = GetPhysicalScreenSize()
@@ -116,7 +125,7 @@ end
 local function Layout()
   frame:SetScale(PixelScale())
   local B = CFG.block
-  frame:SetSize(math.max(BIN_B * B, NUM_BLOCKS * B, CFG.barWidth), CFG.binTop + 3 * B)
+  frame:SetSize(math.max(BIN_B * B, NUM_BLOCKS * B, UI_BLOCKS * B, CFG.barWidth), CFG.binTop + (4 + UI_ROWS) * B)
   -- 无父框体：锚在屏幕左上角，偏移单位 = 本框体单位 = 物理像素
   frame:ClearAllPoints()
   frame:SetPoint("TOPLEFT", nil, "TOPLEFT", CFG.x, -CFG.y)
@@ -138,6 +147,13 @@ local function Layout()
     binC[i]:ClearAllPoints(); binC[i]:SetSize(B, B)
     binC[i]:SetPoint("TOPLEFT", frame, "TOPLEFT", i * B, -(CFG.binTop + 2 * B))
   end
+  for r = 0, UI_ROWS do
+    for i = 0, UI_BLOCKS - 1 do
+      local t = binD[r][i]
+      t:ClearAllPoints(); t:SetSize(B, B)
+      t:SetPoint("TOPLEFT", frame, "TOPLEFT", i * B, -(CFG.binTop + (3 + r) * B))
+    end
+  end
   for i = 1, NUM_BARS do
     local b = bars[i]
     b:ClearAllPoints()
@@ -156,6 +172,7 @@ for i = 0, NUM_BLOCKS - 1 do blocks[i] = NewTex() end
 for i = 0, BIN_A - 1 do binA[i] = NewTex() end
 for i = 0, BIN_B - 1 do binB[i] = NewTex() end
 for i = 0, BIN_C - 1 do binC[i] = NewTex() end
+for r = 0, UI_ROWS do binD[r] = {}; for i = 0, UI_BLOCKS - 1 do binD[r][i] = NewTex() end end
 for i = 1, NUM_BARS do
   local b = CreateFrame("StatusBar", nil, frame)
   b:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -724,6 +741,153 @@ end
 local tick = 0
 local autoAttacking = nil   -- PLAYER_ENTER_COMBAT / PLAYER_LEAVE_COMBAT（自动攻击开/关）
 local scanAge = 0
+-------------------------------------------------------------------- v0.15 界面框位置
+-- 物理像素 = 框体单位 × GetEffectiveScale() × (物理高 / 768)；y 从屏幕上边往下算。
+local uiRects, uiGen, uiPage, uiAge, uiShown = {}, 0, 0, 999, true
+local uiKey = ""
+local errMsgs = {}          -- 最近的红字报错 { {t=到期时间, w=宽(UIErrorsFrame 单位)} }
+local errFS
+local function ErrWidth(msg)
+  local w
+  pcall(function()
+    if not errFS then
+      local holder = CreateFrame("Frame", nil, UIErrorsFrame)
+      holder:SetAlpha(0)
+      errFS = holder:CreateFontString(nil, "OVERLAY")
+    end
+    local font, size, flags = UIErrorsFrame:GetFont()
+    if font then errFS:SetFont(font, size, flags) else errFS:SetFontObject(UIErrorsFrame:GetFontObject()) end
+    errFS:SetText(msg)
+    w = plain(errFS:GetStringWidth())
+  end)
+  return w
+end
+local function NoteUIErrorText(message)
+  local w
+  if message ~= nil and not issecret(message) then w = ErrWidth(message) end
+  table.insert(errMsgs, 1, { t = GetTime() + 5, w = w })
+  while #errMsgs > 3 do table.remove(errMsgs) end
+end
+
+local function HasContent(f, depth)
+  local ok, res = pcall(function()
+    for _, r in ipairs({ f:GetRegions() }) do
+      if r:IsVisible() and (r:GetAlpha() or 0) > 0.05 and (r:GetWidth() or 0) > 1 and (r:GetHeight() or 0) > 1 then
+        return true
+      end
+    end
+    if depth > 0 then
+      local kids = { f:GetChildren() }
+      for i = 1, math.min(#kids, 60) do
+        local c = kids[i]
+        if c:IsVisible() and HasContent(c, depth - 1) then return true end
+      end
+    end
+    return false
+  end)
+  return ok and res
+end
+
+local function ScreenRect(f, pw, ph)
+  local x, y, w, h
+  local ok = pcall(function()
+    local l, b, fw, fh = f:GetRect()
+    l, b, fw, fh = plain(l), plain(b), plain(fw), plain(fh)
+    if not (l and b and fw and fh) then return end
+    local k = (plain(f:GetEffectiveScale()) or 1) * ph / 768
+    x, w, h = l * k, fw * k, fh * k
+    y = ph - (b + fh) * k
+  end)
+  if not ok or not x then return nil end
+  local x0, y0 = math.max(0, x), math.max(0, y)
+  local x1, y1 = math.min(pw, x + w), math.min(ph, y + h)
+  if x1 - x0 < 3 or y1 - y0 < 3 then return nil end
+  return { math.floor(x0), math.floor(y0), math.ceil(x1 - x0), math.ceil(y1 - y0) }
+end
+
+local function ComputeUIRects()
+  local pw, ph = GetPhysicalScreenSize()
+  local out = {}
+  uiShown = UIParent and UIParent:IsVisible() and true or false
+  if not (pw and ph and pw > 0 and ph > 0) or not uiShown then return out end
+  local scr = pw * ph
+  for _, f in ipairs({ UIParent:GetChildren() }) do
+    if f ~= UIErrorsFrame and f ~= frame then
+      pcall(function()                                     -- 受保护/禁止访问的框出错就跳过
+        if not (f:IsVisible() and (f:GetEffectiveAlpha() or 0) > 0.05) then return end
+        local nm = f.GetName and f:GetName()
+        if type(nm) == "string" and (nm:find("^NamePlate") or nm:find("^BotStatus")) then return end
+        local r = ScreenRect(f, pw, ph)
+        if r and r[3] * r[4] <= 0.25 * scr and not (r[3] > 0.9 * pw and r[4] > 0.4 * ph) and HasContent(f, 3) then
+          out[#out + 1] = r
+        end
+      end)
+    end
+  end
+  -- 红字报错：只报最近 5 秒内报错文字实际占的那一块（UIErrorsFrame 本身是一条 512 宽的透明框，平时是空的）
+  local now, n, wmax, unknownW = GetTime(), 0, 0, false
+  for _, m in ipairs(errMsgs) do
+    if m.t > now then
+      n = n + 1
+      if m.w then wmax = math.max(wmax, m.w) else unknownW = true end
+    end
+  end
+  if n > 0 and UIErrorsFrame and UIErrorsFrame:IsVisible() then
+    pcall(function()
+      local k = (plain(UIErrorsFrame:GetEffectiveScale()) or 1) * ph / 768
+      local cx = plain(UIErrorsFrame:GetCenter())
+      local top = plain(UIErrorsFrame:GetTop())
+      local fw, fh = plain(UIErrorsFrame:GetWidth()), plain(UIErrorsFrame:GetHeight())
+      local _, size = UIErrorsFrame:GetFont()
+      if not (cx and top and fw and fh) then return end
+      local w = (unknownW or wmax <= 0) and fw or math.min(fw, wmax + 16)
+      local h = math.min(fh, n * ((size or 16) * 1.35) + 6)
+      local x = (cx - w / 2) * k
+      out[#out + 1] = { math.floor(math.max(0, x)), math.floor(math.max(0, ph - top * k)),
+                        math.ceil(w * k), math.ceil(h * k) }
+    end)
+  end
+  table.sort(out, function(a, b) return a[3] * a[4] > b[3] * b[4] end)
+  while #out > UI_MAX do table.remove(out) end
+  return out
+end
+
+local function RefreshUIRects()
+  uiAge = 0
+  local r = ComputeUIRects()
+  local parts = {}
+  for i, v in ipairs(r) do parts[i] = v[1] .. "," .. v[2] .. "," .. v[3] .. "," .. v[4] end
+  local key = table.concat(parts, ";")
+  if key ~= uiKey then
+    uiKey = key
+    uiRects = r
+    uiGen = (uiGen + 1) % 64
+  end
+end
+
+local function PaintUI()
+  uiAge = uiAge + 1
+  if uiAge >= 20 then pcall(RefreshUIRects) end            -- 每 1 秒重算一次
+  local n = #uiRects
+  PaintBits(binD[0], 0, n, 6)
+  PaintBits(binD[0], 4, uiGen, 6)
+  for i = 8, UI_BLOCKS - 1 do binD[0][i]:SetVertexColor(0, 0, 0, 1) end
+  local pages = math.max(1, math.ceil(n / UI_ROWS))
+  uiPage = (uiPage + 1) % pages
+  for r = 1, UI_ROWS do
+    local idx = uiPage * UI_ROWS + (r - 1)
+    local v = uiRects[idx + 1]
+    local row = binD[r]
+    PaintBits(row, 0, v and idx, 6)
+    PaintBits(row, 4, v and v[1], 12)
+    PaintBits(row, 10, v and v[2], 12)
+    PaintBits(row, 16, v and v[3], 12)
+    PaintBits(row, 22, v and v[4], 12)
+    PaintBits(row, 28, v and uiGen, 6)
+  end
+  Paint(42, { 1, uiShown and 1 or 0, 1 })                  -- v0.15 签名
+end
+
 local function Update()
   -- 每 2 秒重新找一次“攻击”格子（动作条会被拖动）
   scanAge = scanAge + 1
@@ -880,6 +1044,9 @@ local function Update()
   elseif wf > 0 and wf < CFG.buffLowSec then Paint(40, C.yellow)
   else Paint(40, C.green) end
   Paint(41, { (eat and eat ~= false) and 1 or 0, eat ~= nil and 1 or 0, 1 })
+
+  -- v0.15：界面框位置
+  PaintUI()
   Paint(28, C.green)    -- v0.11 签名（v0.10 = 白，v0.8/0.9 = 黄）：目标标记在姓名板中间 + 能打的怪都有 黄|蓝 标记
   -- v0.11：32 标记状态 / 33 姓名板个数
   ghostMode = plain(UnitIsGhost("player")) == true
@@ -987,7 +1154,7 @@ local function ApplyNameplateDistance(verbose)
   npDist = best and math.floor(best + 0.5) or nil
   npOK = npDist ~= nil
   if verbose then
-    print(string.format("|cff40ff40BotStatus v0.14|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
+    print(string.format("|cff40ff40BotStatus v0.15|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
       tostring(npDist or "读不到"), tostring(before or "?")))
   end
 end
@@ -1034,8 +1201,11 @@ frame:SetScript("OnEvent", function(_, event, a1, a2)
     FindAttackSlot()
   elseif event == "UI_ERROR_MESSAGE" then
     OnUIError(a2)
+    pcall(NoteUIErrorText, a2)
+    uiAge = 999                                            -- 下一帧马上重算界面框（报错文字那块）
   elseif event == "UI_SCALE_CHANGED" or event == "DISPLAY_SIZE_CHANGED" then
     Layout()
+    uiAge = 999
   elseif event == "PLAYER_REGEN_ENABLED" then
     Layout()
     Resolve()
@@ -1045,6 +1215,7 @@ frame:SetScript("OnEvent", function(_, event, a1, a2)
     Layout()
     Resolve()
     FindAttackSlot()
+    uiAge = 999
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
       pcall(ApplyNameplateDistance, not npShownOnce)
       npShownOnce = true

@@ -528,6 +528,20 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                 out.append((cx, cy, "红名"))
         return out
 
+    def _ui_src_note(self, obs):
+        src = getattr(obs, "ui_src", "") or ""
+        if not src or src == getattr(self, "ui_src_last", ""):
+            return
+        self.ui_src_last = src
+        if src == "addon":
+            self.log(f"🖼️ 红名排除区：改用插件 v0.15 报告的界面框（{getattr(obs, 'ui_n', 0)} 个），不再用手动排除区")
+        elif src == "hidden":
+            self.log("🖼️ 红名排除区：插件说界面隐藏了（Alt+Z）→ 整个屏幕都找红名")
+        elif self.cfg.get("nameplate", {}).get("use_addon_ui", True):
+            self.log("🖼️ 红名排除区：还没收到插件 v0.15 的界面框（插件旧/没 /reload/读不到）→ 先用手动排除区")
+        else:
+            self.log("🖼️ 红名排除区：用手动排除区（插件界面框已关）")
+
     def _red_ui(self, cx, cy) -> bool:
         """v8.50：这个位置以前被认定是界面（朝它转身它在屏幕上不动）。"""
         r = max(30.0, float(self._nc().get("red_static_px", 20)) * 2)
@@ -1185,6 +1199,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             self._wf_end()                  # v8.46：不在接近目标了（被打/治疗/换目标）→ 松开前进键
         if self._reconnect_tick(obs, now):  # v8.44：断线/登录/选角色界面 → 每 10 秒按 Enter，进游戏后继续
             return
+        self._ui_src_note(obs)              # v8.52：红名排除区来源变了 → 记一行
 
         # 1) 死亡检测
         if obs.source == "addon":
