@@ -255,8 +255,6 @@ class Observation:
     death_info: bool = False        # 插件 v0.12：有死亡/尸体信息
     tinfo: bool = False             # v8.40 插件 v0.13：目标 玩家/精英/等级差 读得到
     eatinfo: bool = False           # v8.49 插件 v0.14：充分进食 / 正在进食 读得到
-    ui_src: str = ""                # v8.52：红名排除区来源 addon=插件报告的界面框 / hidden=界面隐藏（Alt+Z）/ manual=手动排除区
-    ui_n: int = 0                   # 插件报告的界面框个数
     well_fed: str | None = None     # yes/low/no/unknown
     eating: bool | None = None
     t_player: bool | None = None
@@ -430,9 +428,6 @@ class Detector:
                     obs.red_names = self.red_names(frame, obs.nameplates, obs.marker)
             else:
                 obs.nameplates, obs.selected_checked = self.nameplates(frame)
-        if a.ok:                                                                # v8.52：红名排除区来源
-            src, ui = self.ui_exclude()
-            obs.ui_src, obs.ui_n = src, len(ui or [])
         obs.selected_plate = next((p for p in obs.nameplates if p["kind"] == "selected"), None)
         if obs.selected_plate is None and obs.marker is not None and obs.marker_center:
             # v8.17：v0.10 插件的标记在目标姓名板正中间（可能挡住“选中”模板）→ 用标记位置当选中姓名板
@@ -487,21 +482,10 @@ class Detector:
             return False, "插件判断不了有的怪能不能打（机密值）"
         return True, ""
 
-    def _status_exclude(self, blocks=43):   # v8.40：插件 v0.13 第 1 行 40 块；v0.14：42 块；v8.52 / v0.15：43 块
+    def _status_exclude(self, blocks=42):   # v8.40：插件 v0.13 第 1 行 40 块；v8.49 / v0.14：42 块
         a = self.cfg.get("addon", {})
         x0, y0, bs = int(a.get("x", 0)), int(a.get("y", 0)), int(a.get("block", 10))
-        return (x0, y0, blocks * bs + 10, 13 * bs + 10)    # v0.15：界面框数据行到 y = 130
-
-    def ui_exclude(self):
-        """v8.52：(来源, 界面排除区列表 [(x, y, w, h)])。addon = 插件 v0.15 报告的界面框（加 ui_margin_px 边）；
-        hidden = 插件说界面隐藏了（Alt+Z）→ 不排除；manual = 没有插件数据/关了 → 手动 red_ui_exclude + 底部动作条。"""
-        n = self.cfg.get("nameplate", {})
-        if n.get("use_addon_ui", True):
-            rects = self.addon.ui_rects()
-            if rects is not None:
-                m = int(n.get("ui_margin_px", 8))
-                return ("addon" if rects else "hidden"), [(x - m, y - m, w + 2 * m, h + 2 * m) for x, y, w, h in rects]
-        return "manual", None
+        return (x0, y0, blocks * bs + 10, 5 * bs + 10)
 
     def marker_plates(self, frame) -> list:
         """v8.28：插件 v0.11 画的 黄|蓝 标记 → 当成“未选中姓名板”（20x12 小框，中心 = 姓名板中心）。"""
@@ -521,14 +505,9 @@ class Detector:
         st = self.cfg.get("stationary", {})
         mx, my = (st.get("plate_ui_margin") or [320, 140])[:2]
         ex = [(0, 0, int(mx), int(my)), self._status_exclude(),
-              (int(W * 0.4), int(H * 0.34), int(W * 0.2), int(H * 0.28))]     # 自己角色（脚下光圈、头上名字）
-        src, ui = self.ui_exclude()
-        if ui is not None:                                                     # v8.52：插件报告的界面框
-            ex += ui
-        manual = (self.cfg.get("nameplate", {}).get("red_ui_exclude") or []) if ui is None else []
-        if ui is None:
-            ex.append((0, int(H * 0.85), W, H))                                # 动作条
-        for r in manual:
+              (int(W * 0.4), int(H * 0.34), int(W * 0.2), int(H * 0.28)),     # 自己角色（脚下光圈、头上名字）
+              (0, int(H * 0.85), W, H)]                                        # 动作条
+        for r in self.cfg.get("nameplate", {}).get("red_ui_exclude") or []:
             try:
                 fx, fy, fw, fh = (float(v) for v in r[:4])
             except (TypeError, ValueError):
@@ -546,8 +525,6 @@ class Detector:
             cx, cy = n["x"] + n["w"] / 2, n["y"] + n["h"] / 2
             if any(abs(cx - px) < max(70, n["w"] / 2 + 20) and -60 < py - cy < 50 for px, py in pts):
                 continue                  # 有标记的姓名板自带的名字
-            if ui and any(x <= cx < x + w and y <= cy < y + h for x, y, w, h in ui):
-                continue                  # v8.52：名字中心在插件界面框（含边）里（框边上露出来的半截字）
             out.append(n)
         return out
 
@@ -563,8 +540,10 @@ class Detector:
 
     def find_target_marker(self, frame):
         from .marker import find_marker
+        a = self.cfg.get("addon", {})
+        x0, y0, bs = int(a.get("x", 0)), int(a.get("y", 0)), int(a.get("block", 10))
         try:
-            return find_marker(frame, exclude=self._status_exclude())          # v8.52：含 v0.15 界面框数据行
+            return find_marker(frame, exclude=(x0, y0, 42 * bs + 10, 6 * bs + 10))
         except Exception:  # noqa: BLE001
             return None
 

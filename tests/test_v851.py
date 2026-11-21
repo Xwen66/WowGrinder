@@ -32,7 +32,7 @@ class Defaults(unittest.TestCase):
         n = DEFAULT_CONFIG["nameplate"]
         self.assertEqual(n["red_ui_exclude"], V850 + [list(r) for r in NEW])
         self.assertEqual((n["red_walk_static_s"], n["red_walk_static_px"], n["red_walk_min_move"],
-                          n["red_walk_bad_s"], n["red_walk_hits"]), (0.0, 5, 0.15, 120.0, 2))   # v8.52 起默认关
+                          n["red_walk_bad_s"], n["red_walk_hits"]), (2.0, 5, 0.15, 120.0, 2))
 
     def test_migrate_v850_default(self):
         loaded = {"nameplate": {"red_ui_exclude": copy.deepcopy(V850), "patrol_frames": 2},
@@ -84,9 +84,8 @@ class WalkStatic(Search):
     def setUp(self):
         super().setUp()
         d = DEFAULT_CONFIG["nameplate"]
-        self.cfg["nameplate"].update({k: d[k] for k in ("red_walk_static_px", "red_walk_min_move",
+        self.cfg["nameplate"].update({k: d[k] for k in ("red_walk_static_s", "red_walk_static_px", "red_walk_min_move",
                                                          "red_walk_bad_s", "red_walk_hits")})
-        self.cfg["nameplate"]["red_walk_static_s"] = 2.0              # v8.52 起默认关，这里打开测
 
     def walk(self, name, steps=8, dpos=0.05, dxy=0, dt=0.3):
         for i in range(steps):
@@ -155,7 +154,7 @@ class WalkStatic(Search):
 class Strings(unittest.TestCase):
     def test_files(self):
         app = _rd(os.path.join(ROOT, "gui", "app.py"))
-        self.assertTrue(re.search(r"熊德自动打怪 v8\.5[1-9]", app))
+        self.assertIn("熊德自动打怪 v8.51", app)
         for k in ("red_walk_static_s", "red_walk_static_px", "red_walk_min_move", "red_walk_bad_s", "red_walk_hits"):
             self.assertIn(f'"{k}"', app)
         rd = _rd(os.path.join(ROOT, "README_中文.md"))

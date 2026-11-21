@@ -125,9 +125,7 @@ class BotRunner:
         dlog(f"v8.50 找怪顺序={'标记 → 红名 → Tab' if np0.get('plates_first', True) else 'Tab → 标记 → 红名（旧）'}"
              f"（朝红名走看到标记 {np0.get('far_click_frames', 1)} 帧就点；转 {np0.get('red_static_turns', 2)} 次不动=界面；"
              f"红名路上按 Tab={'开' if ts0.get('far_walk_tab', False) else '关'}；界面排除区 {len(np0.get('red_ui_exclude') or [])} 个）")
-        dlog(f"v8.52 红名排除区={'插件报告的界面框（要插件 v0.15；没收到时用手动排除区，Alt+Z 隐藏界面时不排除）' if np0.get('use_addon_ui', True) else '手动排除区'}"
-             f"，四边多排除 {np0.get('ui_margin_px', 8)} 像素")
-        dlog(f"v8.51 直走时“红名”不动=界面（{'开' if float(np0.get('red_walk_static_s', 0) or 0) > 0 else '关'}）：{np0.get('red_walk_static_s', 2.0)} 秒内挪不到 {np0.get('red_walk_static_px', 5)} 像素"
+        dlog(f"v8.51 直走时“红名”不动=界面：{np0.get('red_walk_static_s', 2.0)} 秒内挪不到 {np0.get('red_walk_static_px', 5)} 像素"
              f"且人走了 ≥ {np0.get('red_walk_min_move', 0.15)} → 先 {np0.get('red_walk_bad_s', 120)} 秒不看，"
              f"同一位置 {np0.get('red_walk_hits', 2)} 次 → 这次运行不看")
         ea0 = cfg.get("eat", {})

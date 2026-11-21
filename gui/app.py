@@ -67,7 +67,7 @@ ADVANCED = {
     ("nameplate", "skip_top_pct"), ("nameplate", "stop_settle_s"), ("nameplate", "confirm_px"), ("nameplate", "verify_s"),
     ("nameplate", "bad_s"), ("nameplate", "bad_radius_px"), ("nameplate", "patrol_frames"),
     ("nameplate", "far_click_frames"), ("nameplate", "red_static_turns"),
-    ("nameplate", "ui_margin_px"), ("nameplate", "red_walk_static_s"), ("nameplate", "red_walk_static_px"), ("nameplate", "red_walk_min_move"),
+    ("nameplate", "red_walk_static_s"), ("nameplate", "red_walk_static_px"), ("nameplate", "red_walk_min_move"),
     ("nameplate", "red_walk_bad_s"), ("nameplate", "red_walk_hits"),
     ("nameplate", "far_walk_max_s"), ("nameplate", "far_lost_s"), ("nameplate", "far_skip_s"), ("nameplate", "far_turn_deg"),
     ("scan", "spin_deg"), ("scan", "spin_near_ratio"), ("scan", "spin_wait_s"), ("area", "arrive_ratio"),
@@ -90,7 +90,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.52")
+        self.title("WowGrinder 熊德自动打怪 v8.51")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -623,12 +623,8 @@ class App(tk.Tk):
             ("nameplate", "plates_first", "先点标记→再走红名→最后 Tab（v8.50）", "bool", None,
              "默认开：屏幕上有能打的标记马上右键点；没有就朝红名走、一出标记马上点；都没有才按 Tab。关 = v8.40 的先按 Tab"),
             ("nameplate", "far_click_frames", "朝红名走：看到标记几帧就停下点", "int", None, "v8.50 默认 1 = 马上"),
-            ("nameplate", "use_addon_ui", "红名跳过插件报告的界面框（v8.52）", "bool", None,
-             "默认开：要插件 v0.15（/reload）；插件自动报告头像/动作条/小地图/聊天/任务追踪/红字报错等的位置，"
-             "Alt+Z 隐藏界面时整个屏幕都找；没收到插件数据时用手动排除区"),
-            ("nameplate", "ui_margin_px", "插件界面框四边多排除(px)", "int", None, "v8.52 默认 8"),
             ("nameplate", "red_static_turns", "转几次“红名”还不动=界面", "int", None, "v8.50 默认 2；0 = 不检测"),
-            ("nameplate", "red_walk_static_s", "直走几秒“红名”还不动=界面", "float", None, "v8.52 默认 0 = 不检测（有插件界面框就够了）；想要填 2"),
+            ("nameplate", "red_walk_static_s", "直走几秒“红名”还不动=界面", "float", None, "v8.51 默认 2；0 = 不检测"),
             ("nameplate", "red_walk_static_px", "直走时“不动”=小于(px)", "int", None, "v8.51 默认 5"),
             ("nameplate", "red_walk_min_move", "直走时人至少走了(地图坐标)", "float", None, "v8.51 默认 0.15；卡住不走不算"),
             ("nameplate", "red_walk_bad_s", "直走认定第 1 次：几秒内不看那里", "float", None, "v8.51 默认 120"),

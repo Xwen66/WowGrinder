@@ -45,11 +45,6 @@ VERSION_BLOCK = (1, 23)
 BUFF = {"green": "yes", "yellow": "low", "black": "no", "blue": "unlearned", "magenta": "unknown"}
 CALIB_BLOCK = (1, 24)
 BIN_TOP = 30
-# v0.15 界面框：第 1 行块 42 = 签名（R=1 G=界面显示中 B=1）；D 行（bin 行 3）= 个数 n(6) gen(6)；
-# E1-E6 行（bin 行 4-9）每行一个框：序号(6) x(12) y(12) 宽(12) 高(12) gen(6)，共 32 块
-UI_SIG = 42
-UI_HEAD_ROW, UI_ROW0, UI_ROWS, UI_BLOCKS = 3, 4, 6, 32
-UI_FIELDS = (("idx", 0, 6), ("x", 4, 12), ("y", 10, 12), ("w", 16, 12), ("h", 22, 12), ("gen", 28, 6))
 
 
 @dataclass
@@ -106,12 +101,6 @@ class AddonState:
     eatinfo: bool = False          # 插件 v0.14（块 40/41 有效）
     well_fed: str | None = None    # 充分进食 buff：yes/low/no/unknown；None = 旧插件
     eating: bool | None = None     # 正在进食；None = 读不到
-    # v0.15 界面框位置
-    uiinfo: bool = False           # 插件 v0.15（块 42 签名）
-    ui_shown: bool | None = None   # 界面显示中（Alt+Z 隐藏 = False）
-    ui_n: int | None = None        # 这一组界面框个数
-    ui_gen: int | None = None      # 这一组的版本号（0-63，界面框变了就 +1）
-    ui_rows: list | None = None    # 这一帧读到的框 [(序号, x, y, 宽, 高)]（gen 对得上的）
     marker_center: bool = False    # v0.10：标记在目标姓名板正中间（块 28 白），可以右键点它
     marker_state: str = "unknown"  # shown=标记挂在目标姓名板上 / no_plate / error / none=没目标 / unknown=旧插件
     facing_count: int | None = None  # 面向错误计数 0-7（循环）；None = 旧插件
@@ -190,9 +179,6 @@ class AddonReader:
         self.clock = clock
         self._last_beat = None
         self._last_change = None
-        self._ui = {"gen": None, "n": 0, "rects": {}, "t": None}   # v8.52：正在收的一组界面框
-        self._ui_done = None             # 最近收齐的一组 [(x, y, w, h)]
-        self._ui_done_gen = None
 
     def _a(self):
         return self.cfg.get("addon", {})
@@ -223,56 +209,6 @@ class AddonReader:
         for j in range(n_blocks(nbits)):
             bits += to_bits(self._bin_block(frame, row, start + j))
         return decode_bits(bits, nbits)
-
-    def _bits(self, frame, row, start, nbits):
-        bits: list[int] = []
-        for j in range(n_blocks(nbits)):
-            bits += to_bits(self._bin_block(frame, row, start + j))
-        return decode_bits(bits, nbits)
-
-    def _read_ui(self, frame, st, now):
-        """v8.52 / 插件 v0.15：读这一帧的界面框（一页最多 6 个），攒成一整组。"""
-        x0, y0, bs = self._geom()
-        if frame.shape[1] < x0 + max(UI_SIG + 1, UI_BLOCKS) * bs or frame.shape[0] < y0 + BIN_TOP + (UI_ROW0 + UI_ROWS) * bs:
-            return
-        sb = to_bits(self._block(frame, UI_SIG))
-        if not (sb[0] and sb[2]):
-            return
-        st.uiinfo, st.ui_shown = True, bool(sb[1])
-        st.ui_n = self._bits(frame, UI_HEAD_ROW, 0, 6)
-        st.ui_gen = self._bits(frame, UI_HEAD_ROW, 4, 6)
-        if st.ui_n is None or st.ui_gen is None:
-            return
-        rows = []
-        for r in range(UI_ROWS):
-            v = {k: self._bits(frame, UI_ROW0 + r, s, nb) for k, s, nb in UI_FIELDS}
-            if any(x is None for x in v.values()) or v["gen"] != st.ui_gen or v["idx"] >= st.ui_n:
-                continue
-            rows.append((v["idx"], v["x"], v["y"], v["w"], v["h"]))
-        st.ui_rows = rows
-        u = self._ui
-        if u["gen"] != st.ui_gen or u["n"] != st.ui_n:
-            u.update(gen=st.ui_gen, n=st.ui_n, rects={})
-        for idx, x, y, w, h in rows:
-            u["rects"][idx] = (x, y, w, h)
-        u["t"] = now
-        if len(u["rects"]) >= u["n"]:
-            self._ui_done = [u["rects"][i] for i in range(u["n"])]
-            self._ui_done_gen = u["gen"]
-
-    def ui_rects(self, now=None):
-        """v8.52：插件报告的界面框 [(x, y, w, h)]（物理像素 = 截图像素）。
-        None = 没有插件数据（旧插件 / 读不到 / 还没收齐过一整组）→ 用手动排除区。[] = 界面隐藏了（Alt+Z），不排除。
-        新的一组还没收齐时：用上一组 + 新组已经收到的；上一组是空（界面刚从隐藏变回来）→ None（先用手动排除区）。"""
-        now = self.clock() if now is None else now
-        u = self._ui
-        if u["t"] is None or now - u["t"] > float(self._a().get("ui_stale_s", 5.0)) or self._ui_done is None:
-            return None
-        if u["gen"] == self._ui_done_gen:
-            return list(self._ui_done)
-        if not self._ui_done and u["n"] > 0:
-            return None
-        return list(self._ui_done) + list(u["rects"].values())
 
     def field_status(self, frame, name) -> str:
         """v8.24：'ok' / 'nil'（插件说没有这个值，比如副本里没有坐标）/ 'bad'（色块校验不对：画面撕裂/被挡）。"""
@@ -414,7 +350,6 @@ class AddonReader:
                     st.well_fed = {"green": "yes", "yellow": "low", "black": "no"}.get(c(40), "unknown")
                     eb = to_bits(self._block(frame, 41))
                     st.eating = bool(eb[0]) if eb[1] else None
-        self._read_ui(frame, st, now)                                      # v0.15 界面框
         sd = self.field(frame, "since_damage")
         st.since_damage = None if sd is None else (math.inf if sd >= 127 else float(sd))
 
@@ -460,8 +395,7 @@ def apply_gamma(img, gamma: float = 1.2, brightness: int = 0):
 
 def paint_test_frame(state: dict, size=(200, 400), block=10, beat=0, pos=None, facing=None, map_id=None,
                      bin_pct=None, version=7, since_damage=None, marker="black", facing_count=0, v08=False,
-                     combo=None, energy_lvl=None, marker_center=False, enemy=None, death=None, tinfo=None, eat=None,
-                     ui=None):
+                     combo=None, energy_lvl=None, marker_center=False, enemy=None, death=None, tinfo=None, eat=None):
     """按 v0.7 编码表画一帧（BGR）。
 
     state: {块号: 颜色名 或 ('pct', 数值)（画到 R 通道，旧式）, "bars": (血, 目标, 怒气, 法力)}
@@ -569,22 +503,4 @@ def paint_test_frame(state: dict, size=(200, 400), block=10, beat=0, pos=None, f
         # v0.14：eat = {"wf": "green"/"yellow"/"black"/"magenta", "eating": bool, "readable": bool}
         put(40 * block, 0, PALETTE[eat.get("wf", "black")])
         put(41 * block, 0, tuple(255 * b for b in (1 if eat.get("eating") else 0, 1 if eat.get("readable", True) else 0, 1)))
-    if ui is not None:
-        # v0.15：ui = {"shown": bool, "n": int, "gen": int, "rows": [(序号, x, y, w, h), ...]（最多 6 个）}
-        put(UI_SIG * block, 0, (255, 255 if ui.get("shown", True) else 0, 255))
-
-        def bits_at(row, start, value, nbits):
-            bits = encode_bits(value, nbits)
-            for j in range(len(bits) // 3):
-                put((start + j) * block, BIN_TOP + row * block, tuple(255 * b for b in bits[3 * j:3 * j + 3]))
-        bits_at(UI_HEAD_ROW, 0, ui.get("n", 0), 6)
-        bits_at(UI_HEAD_ROW, 4, ui.get("gen", 0), 6)
-        rows = list(ui.get("rows", ()))
-        for r in range(UI_ROWS):
-            v = rows[r] if r < len(rows) else None
-            vals = dict(zip(("idx", "x", "y", "w", "h"), v)) if v else {}
-            if v:
-                vals["gen"] = ui.get("row_gen", ui.get("gen", 0))
-            for k, s, nb in UI_FIELDS:
-                bits_at(UI_ROW0 + r, s, vals.get(k), nb)
     return img
