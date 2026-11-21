@@ -329,6 +329,7 @@ class TestFar828(Click828):
         super().setUp()
         self.cfg["area"].update(enabled=True, radius=2.0)
         self.cfg["nameplate"]["far_click_frames"] = self.cfg["nameplate"]["patrol_frames"]   # v8.50 前
+        self.cfg["nameplate"]["red_walk_static_s"] = 0          # v8.51 前：直走不动不当界面
         self.g.home = (50.0, 50.0, 1442)
 
     def otick(self, dt=0.15, pos=(50.0, 50.0), **kw):

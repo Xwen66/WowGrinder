@@ -346,12 +346,21 @@ DEFAULT_CONFIG: dict = {
                            # v8.50：Simon 的界面布局（日志 11-21：头像框红图标、任务追踪红字被当成红名）
                            [0.79, 0.10, 0.21, 0.75],  # 右边：任务追踪（更宽）
                            [0.0, 0.62, 0.36, 0.23],   # 左下：挪到左下的自己头像框 + 聊天框
-                           [0.66, 0.64, 0.14, 0.14]], # 下中偏右：挪过去的目标框（目标死了名字是红的）
+                           [0.66, 0.64, 0.14, 0.14],  # 下中偏右：挪过去的目标框（目标死了名字是红的）
+                           # v8.51：日志 11-21 02-05 点朝 (1210,1108) 走了 155 次、朝顶部红字报错 (1080,148) 走了 30 次
+                           [0.51, 0.79, 0.10, 0.06],  # 下中：技能栏上面一点（2160×1350 上 x 1102-1318，y 1066-1147）
+                           [0.47, 0.102, 0.06, 0.016]],  # 顶部正中一条窄带：红字报错“能量值不足”等（x 1015-1145，y 138-159）
         # v8.50 找怪顺序：看到能打的标记 → 马上右键点；没有 → 朝红名走，一出标记马上点；都没有才按 Tab
         "plates_first": True,
         "far_click_frames": 1,        # 朝红名走时看到能点的标记几帧就停下点（v8.50：1 = 马上）
         "red_static_turns": 2,        # 朝红名转了这么多次它在屏幕上还不动 → 是界面，不是怪（这次运行都不再看那里）
         "red_static_px": 20,          # “不动”= 位置变化小于这么多像素
+        # v8.51：朝红名直走（不用转身）时：人在走（地图坐标在变）、“红名”在屏幕上却几乎不动 → 是界面
+        "red_walk_static_s": 2.0,     # 这么多秒内“红名”一直不动（0 = 不检测）
+        "red_walk_static_px": 5,      # “不动”= 离一开始的位置小于这么多像素（远处真怪走近也会挪几像素，界面一点不动）
+        "red_walk_min_move": 0.15,    # 这段时间里人至少走了这么远（地图坐标；卡住不走不算）
+        "red_walk_bad_s": 120.0,      # 第 1 次认定：这么久内不再朝那里走
+        "red_walk_hits": 2,           # 同一个位置认定这么多次 → 这次运行都不再看（1 = 第一次就永久）
         "far_turn_deg": 12.0,         # 名字偏离正前方超过这么多度 → 先转身
     },
     "scan": {
@@ -547,6 +556,17 @@ def _migrate(cfg: dict, loaded: dict) -> dict:
         if same:
             cfg["nameplate"]["red_ui_exclude"] = copy.deepcopy(DEFAULT_CONFIG["nameplate"]["red_ui_exclude"])
         done.append("red_ui_v850")
+    if "red_ui_v851" not in done:                    # v8.51：还是 v8.50 默认的界面排除区 → 加上技能栏上方 + 顶部红字报错两块
+        v850 = [[0.80, 0.0, 0.20, 0.25], [0.86, 0.0, 0.14, 1.0], [0.74, 0.68, 0.26, 0.32], [0.0, 0.70, 0.20, 0.30],
+                [0.79, 0.10, 0.21, 0.75], [0.0, 0.62, 0.36, 0.23], [0.66, 0.64, 0.14, 0.14]]
+        cur = (cfg.get("nameplate", {}) or {}).get("red_ui_exclude")
+        try:
+            same = cur is None or [[float(v) for v in r] for r in cur] == v850
+        except (TypeError, ValueError):
+            same = False
+        if same:
+            cfg["nameplate"]["red_ui_exclude"] = copy.deepcopy(DEFAULT_CONFIG["nameplate"]["red_ui_exclude"])
+        done.append("red_ui_v851")
     if "keys_v827" not in done:                      # v8.27：g 改成回春术，互动/拾取键 g / · → `（只改一次）
         for name in ("interact", "loot"):
             if (keys.get(name) or "").strip().lower() in ("g", "`"):

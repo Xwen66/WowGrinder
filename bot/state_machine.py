@@ -211,6 +211,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.far_skip_until = -1e9
         self.far_seen_n = 0
         self.red_ui_bad = []             # v8.50：认定是界面的“红名”位置（这次运行都不再看）
+        self.red_ui_tmp = []             # v8.51：直走时不动的“红名”位置 [(x, y, 到期时间)]
+        self.red_walk_hits = []          # v8.51：直走时认定过的位置 [(x, y)]（同一位置 red_walk_hits 次 → 永久）
         self.travel_seen = 0             # v8.28：巡逻路上连续几帧看到标记
         self.eng_seen = 0                # v8.32：非战斗连续几帧看到能打的怪的标记
         self.eng_log_t = -1e9
@@ -529,7 +531,44 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
     def _red_ui(self, cx, cy) -> bool:
         """v8.50：这个位置以前被认定是界面（朝它转身它在屏幕上不动）。"""
         r = max(30.0, float(self._nc().get("red_static_px", 20)) * 2)
-        return any(math.hypot(cx - bx, cy - by) < r for bx, by in self.red_ui_bad)
+        if any(math.hypot(cx - bx, cy - by) < r for bx, by in self.red_ui_bad):
+            return True
+        now = self.clock()
+        return any(now < t and math.hypot(cx - bx, cy - by) < r for bx, by, t in self.red_ui_tmp)
+
+    def _far_walk_static(self, obs, now, cx, cy, kind) -> bool:
+        """v8.51：朝红名直走时，人在走（地图坐标变了 ≥ red_walk_min_move）、“红名”在屏幕上 red_walk_static_s 秒都没挪过
+        red_walk_static_px → 是界面（技能栏上方的图标、顶部红字报错等）。第 1 次：red_walk_bad_s 秒内不再看那里；
+        同一位置认定 red_walk_hits 次 → 这次运行都不再看。"""
+        f, n = self.far, self._nc()
+        need_s = float(n.get("red_walk_static_s", 0) or 0)
+        if need_s <= 0 or kind != "红名":
+            return False
+        tol = float(n.get("red_walk_static_px", 5))
+        w = f.get("wref")
+        if w is None or math.hypot(cx - w[0], cy - w[1]) > tol or w[3] is None:
+            f["wref"] = (cx, cy, now, obs.pos, 1)
+            return False
+        f["wref"] = w = (w[0], w[1], w[2], w[3], w[4] + 1)
+        if now - w[2] < need_s or w[4] < 3 or obs.pos is None:
+            return False
+        moved = distance(w[3], obs.pos)
+        if moved < float(n.get("red_walk_min_move", 0.15)):
+            return False
+        r = max(30.0, float(n.get("red_static_px", 20)) * 2)
+        self.red_walk_hits.append((cx, cy))
+        hits = sum(1 for bx, by in self.red_walk_hits if math.hypot(cx - bx, cy - by) < r)
+        need_hits = max(1, int(n.get("red_walk_hits", 2) or 1))
+        if hits >= need_hits:
+            self.red_ui_bad.append((cx, cy))
+            how = "这次运行不再看这个位置"
+        else:
+            bad_s = float(n.get("red_walk_bad_s", 120))
+            self.red_ui_tmp.append((cx, cy, now + bad_s))
+            how = f"{bad_s:.0f} 秒内不再看这个位置（再认定 {need_hits - hits} 次就这次运行都不看）"
+        self.log(f"🚫 朝“红名”({cx:.0f},{cy:.0f}) 直走了 {now - w[2]:.1f} 秒（走了 {moved:.2f}），它在屏幕上一动不动 → "
+                 f"是界面上的红色（技能栏/报错字等），不是怪；第 {hits} 次，{how}")
+        return True
 
     def _far_static(self, cx, cy, kind) -> bool:
         """v8.50：每次朝红名转身记一下它的屏幕位置；转了 red_static_turns 次还在原地 → 是界面，拉黑这个位置。"""
@@ -614,6 +653,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             f["seen"] = now
             fw, _ = obs.frame_size
             cx, cy, kind = min(tg, key=lambda t: abs(t[0] - fw / 2))
+            if self._far_walk_static(obs, now, cx, cy, kind):
+                return self._far_end("那个“红名”是界面", skip=False)
             deg = self._far_bearing(obs, cx, cy)
             if abs(deg) > float(n.get("far_turn_deg", 12)) * 1.5 and now - f["steer_t"] >= 0.5:
                 if self._far_static(cx, cy, kind):
