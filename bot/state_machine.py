@@ -210,6 +210,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.far = None                  # v8.28：正朝远处红名走 {t0, seen, pos, pos_t}
         self.far_skip_until = -1e9
         self.far_seen_n = 0
+        self.red_ui_bad = []             # v8.50：认定是界面的“红名”位置（这次运行都不再看）
         self.travel_seen = 0             # v8.28：巡逻路上连续几帧看到标记
         self.eng_seen = 0                # v8.32：非战斗连续几帧看到能打的怪的标记
         self.eng_log_t = -1e9
@@ -521,9 +522,33 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         out = [(p["x"] + p["w"] / 2, p["y"] + p["h"] / 2, "远处姓名板") for p in self._clickable(obs, now, top=True)]
         for n in getattr(obs, "red_names", None) or []:
             cx, cy = n["x"] + n["w"] / 2, n["y"] + n["h"] / 2
-            if not self._is_bad(cx, cy, now):
+            if not self._is_bad(cx, cy, now) and not self._red_ui(cx, cy):
                 out.append((cx, cy, "红名"))
         return out
+
+    def _red_ui(self, cx, cy) -> bool:
+        """v8.50：这个位置以前被认定是界面（朝它转身它在屏幕上不动）。"""
+        r = max(30.0, float(self._nc().get("red_static_px", 20)) * 2)
+        return any(math.hypot(cx - bx, cy - by) < r for bx, by in self.red_ui_bad)
+
+    def _far_static(self, cx, cy, kind) -> bool:
+        """v8.50：每次朝红名转身记一下它的屏幕位置；转了 red_static_turns 次还在原地 → 是界面，拉黑这个位置。"""
+        f, n = self.far, self._nc()
+        need = int(n.get("red_static_turns", 2) or 0)
+        if need <= 0 or kind != "红名":
+            return False
+        tol = float(n.get("red_static_px", 20))
+        ref = f.get("tpos")
+        if ref is None or math.hypot(cx - ref[0], cy - ref[1]) >= tol:
+            f["tpos"], f["turns"] = (cx, cy), 0
+            return False
+        f["turns"] = f.get("turns", 0) + 1
+        if f["turns"] < need:
+            return False
+        self.red_ui_bad.append((cx, cy))
+        self.log(f"🚫 朝“红名”({cx:.0f},{cy:.0f}) 转了 {f['turns']} 次它在屏幕上一动不动 → 是界面上的红色（头像/任务栏等），"
+                 "不是怪；这次运行不再看这个位置")
+        return True
 
     def _far_bearing(self, obs, cx, cy) -> float:
         fw, fh = obs.frame_size
@@ -553,7 +578,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                  + f"朝它走，出了标记就停下点（最多 {float(n.get('far_walk_max_s', 10)):.0f} 秒，不按互动键）")
         if turn:
             self._far_turn(deg, f"朝远处{kind}转身")
-        self.far = {"t0": now, "seen": now, "pos": obs.pos, "pos_t": now, "steer_t": now}
+        self.far = {"t0": now, "seen": now, "pos": obs.pos, "pos_t": now, "steer_t": now,
+                    "tpos": (cx, cy) if turn and kind == "红名" else None, "turns": 0}
         self.far_seen_n = 0
         self._start_walk(obs)
         return True
@@ -572,8 +598,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             self.far_seen_n += 1
         else:
             self.far_seen_n = 0
-        if self.far_seen_n >= int(n.get("patrol_frames", 2)):
-            return self._far_end("出现能点的标记 → 停下点", skip=False)
+        if self.far_seen_n >= int(n.get("far_click_frames", n.get("patrol_frames", 2)) or 1):
+            return self._far_end("出现能点的标记 → 马上停下右键点", skip=False)
         if self._outside_area(obs):
             return self._far_end("走到范围边上了")
         if now - f["t0"] > float(n.get("far_walk_max_s", 10)):
@@ -590,6 +616,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             cx, cy, kind = min(tg, key=lambda t: abs(t[0] - fw / 2))
             deg = self._far_bearing(obs, cx, cy)
             if abs(deg) > float(n.get("far_turn_deg", 12)) * 1.5 and now - f["steer_t"] >= 0.5:
+                if self._far_static(cx, cy, kind):
+                    return self._far_end("那个“红名”是界面", skip=False)
                 f["steer_t"] = now
                 self.dlog(f"[远处] {kind} 偏 {deg:+.0f}° → 边走边转")
                 self._far_turn(deg, f"朝远处{kind}修正方向")
@@ -1297,7 +1325,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         if self.far is not None and not obs.in_combat and not hit and self._pull_mana_low(obs, now):
             self._far_end("法力低于开怪线，先回蓝", skip=False)     # v8.47
         if self.far is not None:
-            if not obs.in_combat and not hit and self._ts_moving(obs, now, dead_pct, "朝远处走"):
+            if not obs.in_combat and not hit and self._ts_cfg().get("far_walk_tab", False) \
+                    and self._ts_moving(obs, now, dead_pct, "朝远处走"):
                 return                  # v8.40：移动中 Tab 选中合格的怪 → 已停下，下一帧开打
             if self.far is not None:
                 if obs.in_combat or hit or (obs.target_exists and not self._ts_ignoring(now)):
@@ -1395,7 +1424,14 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
 
         self._note_no_target(now)     # v8.5：“最长找不到怪/最长不进战斗”不再停止，只记日志，继续找
 
-        if self._ts_search(obs, now, dead_pct):
+        if self._plates_first():
+            # v8.50：先看屏幕 → 有能打的标记就点（下面）；没有 → 朝红名走；都没有才按 Tab
+            if not self._clickable(obs, now) or self.click_fails >= int(n.get("max_click_fails", 3)):
+                if self._far_begin(obs, now):
+                    return
+                if self._ts_search(obs, now, dead_pct):
+                    return
+        elif self._ts_search(obs, now, dead_pct):
             return                      # v8.40：每次找怪先按 Tab；没选到/不合格 → 下面原来的流程（屏幕标记 → 远处）
         plates = self._clickable(obs, now)     # v8.28：最上面一条（远处）、点空过的位置不点
         if plates and now < self.skip_until and self.skip_pos is not None:   # 刚放弃的怪附近的姓名板先不点
@@ -1446,6 +1482,11 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                  f"({p['x'] + p['w'] / 2:.0f},{p['y'] + p['h'] / 2:.0f})，屏幕上能点的 {len(plates)} 个")
 
     # ------------------------------------------------------------ v8.32 非战斗看到怪就打
+    def _plates_first(self) -> bool:
+        """v8.50：点击模式找怪顺序 = 标记 → 红名 → Tab（关掉 = v8.40 的 Tab → 标记 → 红名）。"""
+        n = self._nc()
+        return bool(n.get("plates_first", True)) and not self.stationary and n.get("select_method", "click") == "click"
+
     def _engage_first(self, obs, now, dead_pct, hit, why) -> bool:
         """v8.32：不在战斗中、没选中活怪，连续 patrol_frames 帧看到能打的怪的插件标记（屏幕最上面一条不算）
         → 先打它（停下 → 右键点），本来要做的（why：拾取尸体/补 buff/等一会/回中心）打完再做。
@@ -1475,7 +1516,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             return False                       # 范围外（要走回中心）：不在外面拉怪
         plain = (obs.target_kind == "none" and not self.pending_loot and not getattr(self, "spin_due", False)
                  and now >= getattr(self, "spin_wait_until", -1e9))
-        if plain and self._ts_ready(obs, now):
+        if plain and not self._plates_first() and self._ts_ready(obs, now):
             self.eng_seen = 0
             return False                       # v8.40：本来就在找怪 → 先按 Tab（_search 里），Tab 不行再点标记
         need = 1 if plain else int(n.get("patrol_frames", 2))     # 本来就在找怪：跟以前一样第 1 帧就点

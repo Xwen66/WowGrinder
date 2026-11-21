@@ -121,6 +121,10 @@ class BotRunner:
              f"（两具尸体确认={'开' if lt0.get('bagfull_two_corpses', False) else '关'}）；"
              f"v8.48 背包满只捡钱={'开' if lt0.get('full_bag_money_only', True) else '关'}"
              f"（不剥皮，捡过的尸体记 {lt0.get('full_bag_memory_s', 300)} 秒）")
+        np0, ts0 = cfg.get("nameplate", {}), cfg.get("tab_search", {})
+        dlog(f"v8.50 找怪顺序={'标记 → 红名 → Tab' if np0.get('plates_first', True) else 'Tab → 标记 → 红名（旧）'}"
+             f"（朝红名走看到标记 {np0.get('far_click_frames', 1)} 帧就点；转 {np0.get('red_static_turns', 2)} 次不动=界面；"
+             f"红名路上按 Tab={'开' if ts0.get('far_walk_tab', False) else '关'}；界面排除区 {len(np0.get('red_ui_exclude') or [])} 个）")
         ea0 = cfg.get("eat", {})
         dlog(f"v8.49 自动进食={'开' if ea0.get('enabled', True) else '关'}（进食键「{ea0.get('key') or '没填'}」，"
              f"没“充分进食”buff、附近没怪时变人形吃 ≥ {ea0.get('min_s', 11)} 秒；要插件 v0.14）；背包满只捡钱不再按 Esc")

@@ -1,5 +1,6 @@
 """v8.48（t195u）：背包满了还拾取（只拿到钱，物品不等，关拾取窗口），不剥皮，记住捡过的尸体不再捡。背包没满时不变。"""
 import os
+import re
 import sys
 import unittest
 
@@ -167,7 +168,7 @@ class Strings(unittest.TestCase):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(root, "gui", "app.py"), encoding="utf-8") as fh:
             app = fh.read()
-        self.assertIn("熊德自动打怪 v8.4", app)      # v8.49 起标题版本在新测试里查
+        self.assertTrue(re.search(r"熊德自动打怪 v8\.(4\d|[5-9]\d)", app))      # v8.49 起标题版本在新测试里查
         self.assertIn('"full_bag_money_only"', app)
         with open(os.path.join(root, "README_中文.md"), encoding="utf-8") as fh:
             self.assertIn("v8.48 背包满只捡钱", fh.read())

@@ -3,6 +3,7 @@ A. 多怪变熊默认关；B. 一直按变猎豹预留；C. 实测变身耗蓝�
 D/E. 战后治疗：< 60% 生命之触 / 60-85% 回春术 / ≥ 85% 不治疗；F. 法力 ≥ 50% 才开怪（被打照常迎战）。"""
 import copy
 import os
+import re
 import sys
 import unittest
 
@@ -224,7 +225,7 @@ class Strings(unittest.TestCase):
     def test_gui_and_readme(self):
         with open(os.path.join(ROOT, "gui", "app.py"), encoding="utf-8") as f:
             app = f.read()
-        self.assertIn("熊德自动打怪 v8.4", app)      # v8.48 起标题版本在新测试里查
+        self.assertTrue(re.search(r"熊德自动打怪 v8\.(4\d|[5-9]\d)", app))      # v8.48 起标题版本在新测试里查
         self.assertIn('"post_rejuv_below_pct"', app)
         self.assertIn('"pull_min_mana_pct"', app)
         with open(os.path.join(ROOT, "README_中文.md"), encoding="utf-8") as f:

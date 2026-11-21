@@ -51,7 +51,7 @@ class TestFullWindow(unittest.TestCase):
         self.assertEqual(len(self.found(1200, 60)), 1)            # 旧区域 y < 93 不找
 
     def test_below_old_region_found(self):
-        self.assertEqual(len(self.found(700, 900)), 1)            # 旧区域 y > 863 不找
+        self.assertEqual(len(self.found(1000, 900)), 1)           # 旧区域 y > 863 不找（v8.50：x 700 现在是左下头像框排除区）
 
     def test_old_region_ignored_even_if_tiny(self):
         img = frame()

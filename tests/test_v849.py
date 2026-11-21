@@ -224,7 +224,7 @@ def _rd(p):
 class Strings(unittest.TestCase):
     def test_files(self):
         app = _rd(os.path.join(ROOT, "gui", "app.py"))
-        self.assertIn("熊德自动打怪 v8.49", app)
+        self.assertTrue(re.search(r"熊德自动打怪 v8\.(49|[5-9]\d)", app))
         self.assertIn('"eat"', app)
         rd = _rd(os.path.join(ROOT, "README_中文.md"))
         self.assertIn("v8.49", rd)

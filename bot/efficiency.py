@@ -168,8 +168,16 @@ class WalkFarMixin:
     def _wf_want(self, obs, hit) -> bool:
         """选中的活怪离得远、还没进战斗、没挨打 → 先走过去（不按开怪键、不右键）。"""
         c = self._wf_cfg()
+        if self._wf_plate(obs):
+            return False                    # v8.50：看得到它的姓名板/标记 → 直接右键点，让游戏自己走过去
         return bool(c["walk_far"]) and not obs.in_combat and not hit and obs.source == "addon" \
             and obs.range in ("far", "ranged") and obs.pos is not None
+
+    def _wf_plate(self, obs) -> bool:
+        """v8.50：选中的怪的姓名板（或插件标在它中间的标记）在屏幕上。"""
+        if not self._plates_first():
+            return False
+        return obs.selected_plate is not None or self._has_marker(obs)
 
     def _wf_start(self, obs, now):
         from .state_machine import State
@@ -209,6 +217,10 @@ class WalkFarMixin:
                 self._wf_end(f"🚶 朝远处的怪走，{float(c['walk_far_stuck_s']):.1f} 秒坐标没变（卡住了）→ 改成右键点它走过去")
                 self._engage(obs)
                 return True
+        if self._wf_plate(obs) and not self._rclick_wait(now):
+            self._wf_end("🖱️ 走过去的路上看到它的姓名板了 → 马上右键点它，让游戏自己走过去")
+            self._engage(obs)
+            return True
         if self._turn_toward(obs):           # 看不到它的姓名板 → 先转过去（转太多次会自己放弃目标）
             if self.walking:
                 self._stop_walk()

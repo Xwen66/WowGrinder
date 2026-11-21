@@ -2,6 +2,7 @@
 A. 就近切换中心（离当前中心超出半径、但在另一个中心半径里 → 换过去，不走回去）；
 1. 蓝不够时先回蓝再开怪；2. 战斗中治疗线 30 → 40；3. 怪离得远 → 先走过去再开打。"""
 import os
+import re
 import sys
 import unittest
 
@@ -315,7 +316,7 @@ class Strings(unittest.TestCase):
     def test_gui_and_readme(self):
         with open(os.path.join(ROOT, "gui", "app.py"), encoding="utf-8") as f:
             app = f.read()
-        self.assertIn("熊德自动打怪 v8.4", app)      # v8.47 起标题版本在新测试里查
+        self.assertTrue(re.search(r"熊德自动打怪 v8\.(4\d|[5-9]\d)", app))      # v8.47 起标题版本在新测试里查
         for s in ('"auto_switch_center"', '"mana_rest_enabled"', '"mana_rest_hp_below"', '"mana_rest_margin_pct"',
                   '"mana_rest_hp_ok"', '"drink_key"', '"mana_rest_timeout_s"', '"walk_far"', '"walk_far_max_s"'):
             self.assertIn(s, app)

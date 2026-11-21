@@ -2,6 +2,7 @@
 v8.44 只认 logo/进入按钮/选角色顶栏 → 02:44 断线后近 6 小时一次 Enter 都没按。"""
 import copy
 import os
+import re
 import sys
 import unittest
 
@@ -192,7 +193,7 @@ class TestReconnectV845(Base):
 class TestStrings(unittest.TestCase):
     def test_versions(self):
         with open(os.path.join(ROOT, "gui", "app.py"), encoding="utf-8") as f:
-            self.assertIn("熊德自动打怪 v8.4", f.read())      # v8.46 起标题版本在新测试里查
+            self.assertTrue(re.search(r"熊德自动打怪 v8\.(4\d|[5-9]\d)", f.read()))      # v8.46 起标题版本在新测试里查
         with open(os.path.join(ROOT, "README_中文.md"), encoding="utf-8") as f:
             rd = f.read()
         self.assertIn("v8.45 认出“已与服务器断开连接”弹窗", rd)
