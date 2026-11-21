@@ -47,7 +47,7 @@ ADVANCED = {
     ("keys", k) for k in ("loot", "turn", "forward", "turn_left", "turn_right", "jump", "strafe")
 } | {
     ("heal", "cast_s"), ("heal", "cancel_form_first"), ("heal", "heal_cooldown_s"),
-    ("loot", "bagfull_presses"), ("loot", "bagfull_two_corpses"),
+    ("loot", "bagfull_presses"), ("loot", "bagfull_two_corpses"), ("eat", "min_s"), ("eat", "retry_min"),
     ("corpse", "safe_rescan_s"), ("corpse", "near_pct"), ("corpse", "arrive_dist"), ("corpse", "stuck_s"),
     ("corpse", "retry_s"),
     ("loot", "delay_ms"), ("loot", "wait_ms"), ("loot", "skin_cast_s"), ("loot", "residual_wait_s"),
@@ -87,7 +87,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.48")
+        self.title("WowGrinder 熊德自动打怪 v8.49")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -386,6 +386,13 @@ class App(tk.Tk):
         self._field(f, r + 7, "最多连按几次", "buffs", "max_tries", "int", col=3)
         self._field(f, r + 8, "读不到时每 N 分钟补荆棘", "buffs", "fallback_min_thorns", "float", col=3)
         self._field(f, r + 9, "读不到时每 N 分钟补印记", "buffs", "fallback_min_motw", "float", col=3)
+        ttk.Label(f, text="—— 自动进食：充分进食 buff（v8.49，需要插件 v0.14）——").grid(row=r + 11, column=3, columnspan=2, sticky="w", padx=8)
+        self._field(f, r + 12, "自动进食", "eat", "enabled", "bool", col=3,
+                    tip="没有“充分进食”buff、脱战、附近没怪 → 变人形按进食键，原地吃 ≥ 11 秒；按了没在吃 = 没食物了，30 分钟后再试")
+        self._field(f, r + 13, "进食键", "eat", "key", col=3,
+                    tip="游戏里做一个宏：/use 食物名字（例如 /use 烤狼肉），拖到动作条，把那个格子的按键填这里；空 = 不吃")
+        self._field(f, r + 14, "至少吃(秒)", "eat", "min_s", "float", col=3, tip="吃满 10 秒才有充分进食，默认 11")
+        self._field(f, r + 15, "没食物后 N 分钟再试", "eat", "retry_min", "float", col=3)
         self._field(f, r + 15, "目标太远就清除目标", "stationary", "clear_far", "bool",
                     tip="插件距离块红（30 码外）→ 按清除目标键")
 

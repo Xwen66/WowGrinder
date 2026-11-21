@@ -55,6 +55,7 @@ from .multibear import MultiBearMixin  # noqa: E402
 from .tabsearch import TabSearchMixin  # noqa: E402
 from .reconnect import ReconnectMixin  # noqa: E402
 from .efficiency import ManaRestMixin, WalkFarMixin  # noqa: E402
+from .eat import EatMixin  # noqa: E402
 
 class State(str, Enum):
     SEARCHING = "寻找目标"
@@ -73,7 +74,7 @@ class State(str, Enum):
 ALIVE_KINDS = ("enemy", "unknown")
 
 
-class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, ManaRestMixin, WalkFarMixin):
+class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, ManaRestMixin, WalkFarMixin, EatMixin):
     def __init__(self, cfg: dict, inp, log=print, clock=time.monotonic, screen_offset=(0, 0), beep=alarm, dlog=None):
         self.cfg = cfg
         self.inp = inp
@@ -161,7 +162,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.bag_skip = False          # 放弃了这具尸体：下次进战斗前不再捡选中的尸体
         self.bag_probe = False         # 只差最后一次：这轮只按拾取不按剥皮，看反应
         self.fb_mem = []               # v8.48 背包满只捡钱：捡过的尸体 [(坐标或 None, 时间)]
-        self.fb_close = None           # v8.48 刚按了拾取 → 下一帧看到尸体就关拾取窗口 {"t", "pos"}
+        self.fb_close = None           # v8.48（v8.49 起不用了：不再按 Esc 关拾取窗口）
+        self._eat_init()               # v8.49 自动进食（充分进食 buff）
         self.cr = None                 # v8.31 跑尸状态（None = 没在跑尸）
         self.deaths = 0                # v8.31 这次运行死了几次（不限次数）
         self.rest_end_t = -1e9         # v8.7：回血结束时间（尸体过期从这之后算）
@@ -1130,8 +1132,6 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         if self._corpse_tick(obs, now):      # v8.31：死了 → 释放灵魂 → 跑尸 → 复活 → 回血回蓝
             return
         self._bag_watch(obs, now)
-        if self._fb_close_tick(obs, now):    # v8.48：背包满只捡钱 → 关掉拾取窗口，不等物品
-            return
         # v8.43：死了不再停止（跑尸开着时上面 _corpse_tick 已经处理；跑尸关着/插件太旧 → 不按键，等活过来再继续）
         dead_now = bool(obs.player_dead)
         if not dead_now and obs.player_hp <= dead_pct and obs.hp_readable:
@@ -1263,6 +1263,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                 self.last_hp_dlog = now
                 self.dlog(f"[治疗判断] 战斗中血量 {hp:.0f}%（{self._hp_src(obs)}）≥ 治疗线 {line:.0f}% → 不需要")
 
+        if self._eat_tick(obs, now, dead_pct):   # v8.49：没“充分进食”buff、附近没怪 → 变人形吃东西
+            return
         if self.state == State.SKINNING:
             return self._skin(obs, now)
         if self.state == State.BUFFING:
@@ -1554,6 +1556,10 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             return self.reconnect_label()
         rem = self.break_remaining()
         bag = ("（🎒背包满：只捡钱）" if self._money_only() else "（🎒背包满：只打怪）") if self.bag_full else ""
+        el = self._eat_label()
+        if self.eat is not None and self.cr is None:
+            return el + bag
+        bag = bag + el
         if self.cr is not None:
             return f"👻 {self.corpse_label()}（第 {self.deaths} 次死亡）" + bag
         if rem is None:
@@ -3619,37 +3625,14 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self._ctx("背包满：只捡钱（交互键）")
         self.inp.press(key)
         self.fb_mem.append((obs.pos, now))
-        self.fb_close = {"t": self.clock(), "pos": obs.pos}
+        self.fb_close = None           # v8.49：不再按 Esc 关拾取窗口（角色走开窗口自己关；Esc 常常打开游戏菜单）
         self.inp.sleep(min(float(l.get("full_bag_wait_ms", 500)), float(l["wait_ms"])) / 1000.0)
-        self.log(f"🎒💰 背包满：按交互键「{key}」只捡钱（物品不等），不剥皮；记住这具尸体 "
-                 f"{float(l.get('full_bag_memory_s', 300)):.0f} 秒不再捡")
+        self.log(f"🎒💰 背包满：按交互键「{key}」只捡钱（物品不等，不按 Esc，走开拾取窗口自己关），不剥皮；"
+                 f"记住这具尸体 {float(l.get('full_bag_memory_s', 300)):.0f} 秒不再捡")
         self.last_combat_time = self.clock()
         self.last_kill_t = self.clock()
         self._reset_target_tracking(self.clock())
         self._after_loot(obs)
-
-    def _fb_close_tick(self, obs, now) -> bool:
-        """按完拾取的下一帧：选中的是尸体 → 按一次关窗口键（Esc：先关拾取窗口；没窗口就只清目标，不会开游戏菜单）。
-        没目标就不按（没目标时 Esc 会打开游戏菜单），拾取窗口走开就自己关。返回 True = 这一帧按了键。"""
-        fc = self.fb_close
-        if fc is None:
-            return False
-        l = self.cfg["loot"]
-        if obs.in_combat or now - fc["t"] > float(l.get("full_bag_close_s", 1.5)):
-            self.fb_close = None
-            if not obs.in_combat:
-                self.dlog("[背包满] 拾取后没看到选中的尸体 → 不按 Esc（拾取窗口走开会自己关）")
-            return False
-        if not obs.target_exists or obs.target_kind != "dead" or obs.casting:
-            return False                 # 读条中不按 Esc（会打断治疗）
-        self.fb_close = None
-        if obs.pos is not None and fc.get("pos") is None:
-            self.fb_mem.append((obs.pos, now))
-        key = (l.get("full_bag_close_key") or "esc").strip().lower()
-        self._ctx("背包满：关拾取窗口")
-        self.inp.press(key)
-        self.log(f"🎒 关掉拾取窗口（按「{key}」），物品留在尸体上，接着找怪")
-        return True
 
     def _bag_press(self):
         """脱战时每按一次拾取/剥皮的互动键记一次（战斗中从不按互动键）。"""

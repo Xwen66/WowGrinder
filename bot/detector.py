@@ -254,6 +254,9 @@ class Observation:
     # ---- v8.31 跑尸（插件 v0.12）
     death_info: bool = False        # 插件 v0.12：有死亡/尸体信息
     tinfo: bool = False             # v8.40 插件 v0.13：目标 玩家/精英/等级差 读得到
+    eatinfo: bool = False           # v8.49 插件 v0.14：充分进食 / 正在进食 读得到
+    well_fed: str | None = None     # yes/low/no/unknown
+    eating: bool | None = None
     t_player: bool | None = None
     t_elite: bool | None = None
     t_rare: bool = False
@@ -479,7 +482,7 @@ class Detector:
             return False, "插件判断不了有的怪能不能打（机密值）"
         return True, ""
 
-    def _status_exclude(self, blocks=40):   # v8.40：插件 v0.13 第 1 行 40 块
+    def _status_exclude(self, blocks=42):   # v8.40：插件 v0.13 第 1 行 40 块；v8.49 / v0.14：42 块
         a = self.cfg.get("addon", {})
         x0, y0, bs = int(a.get("x", 0)), int(a.get("y", 0)), int(a.get("block", 10))
         return (x0, y0, blocks * bs + 10, 5 * bs + 10)
@@ -540,7 +543,7 @@ class Detector:
         a = self.cfg.get("addon", {})
         x0, y0, bs = int(a.get("x", 0)), int(a.get("y", 0)), int(a.get("block", 10))
         try:
-            return find_marker(frame, exclude=(x0, y0, 40 * bs + 10, 6 * bs + 10))
+            return find_marker(frame, exclude=(x0, y0, 42 * bs + 10, 6 * bs + 10))
         except Exception:  # noqa: BLE001
             return None
 
@@ -586,6 +589,8 @@ class Detector:
         obs.t_player, obs.t_elite = getattr(a, "t_player", None), getattr(a, "t_elite", None)
         obs.t_rare, obs.t_skull = getattr(a, "t_rare", False), getattr(a, "t_skull", False)
         obs.t_level_diff = getattr(a, "t_level_diff", None)
+        obs.eatinfo = getattr(a, "eatinfo", False)                  # v8.49 / 插件 v0.14
+        obs.well_fed, obs.eating = getattr(a, "well_fed", None), getattr(a, "eating", None)
 
     def _fill_from_screen(self, obs: Observation, frame):
         cfg = self.cfg

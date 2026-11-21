@@ -246,6 +246,17 @@ DEFAULT_CONFIG: dict = {
         "fallback_min_thorns": 9, # 插件读不到 buff 时：按时间补（分钟）；0 = 读不到就不补
         "fallback_min_motw": 29,
     },
+    "eat": {
+        # v8.49 自动进食：没有“充分进食”buff（+5% 经验）、附近没怪 → 变人形按进食键吃 ≥ 11 秒（要插件 v0.14）
+        "enabled": True,
+        "key": "",                # 进食键：游戏里做宏 /use 食物名 放到动作条，把那个格子的键填这里；空 = 不吃
+        "min_s": 11.0,            # 至少吃这么久
+        "max_s": 30.0,            # 最多吃这么久
+        "verify_s": 2.5,          # 按完这么久还没在进食 → 认定没食物了
+        "quiet_s": 3.0,           # 打完怪/挨打后至少过这么久才吃
+        "retry_min": 30.0,        # 没食物后多少分钟再试
+        "max_restarts": 1,        # 吃到一半被打断重按几次
+    },
     "meta": {
         "migrations": [],         # 已经做过的一次性配置升级（别手动改）
     },
@@ -385,8 +396,6 @@ DEFAULT_CONFIG: dict = {
         "bagfull_two_corpses": False,  # v8.29：要两具尸体都这样才认定（更保险，默认关）
         "full_bag_money_only": True,   # v8.48：背包满了还拾取（只拿到钱，物品不等），不剥皮，记住捡过的尸体
         "full_bag_wait_ms": 500,       # v8.48：背包满时按完拾取等多久（钱自动拾取）
-        "full_bag_close_key": "esc",   # v8.48：关拾取窗口的键（只在选中尸体时按，不会开游戏菜单）
-        "full_bag_close_s": 1.5,       # v8.48：按完拾取多久内看到选中的尸体才按关窗口键
         "full_bag_memory_s": 300,      # v8.48：捡过钱的尸体记多久（不再回去捡）
         "full_bag_memory_dist": 0.15,  # v8.48：离捡过的位置这么近（地图坐标 0-100）算同一具尸体
     },

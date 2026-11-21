@@ -358,7 +358,7 @@ class TestGuiReadme(unittest.TestCase):
         self.assertIn("v8.40", rd)
         self.assertIn("v0.13", rd)
         lua = open(LUA, encoding="utf-8").read()
-        self.assertIn("local NUM_BLOCKS = 40", lua)
+        self.assertTrue(re.search(r"local NUM_BLOCKS = (4[0-9])", lua))      # v0.14 起 42
         toc = open(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc"), encoding="utf-8").read()
         self.assertTrue(re.search(r"## Version: 0\.1[3-9]\.0", toc))
 

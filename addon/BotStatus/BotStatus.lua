@@ -2,6 +2,9 @@
 BotStatus：把角色状态画成屏幕左上角的纯色方块，给 WowGrinder（Python）截图读取。
 兼容《魔兽世界：无限》1.60.1（TOC 16001，带 Midnight 的"机密值/secret values"限制）。
 
+v0.14：给 WowGrinder v8.49“自动进食”用：
+      块 40 = 充分进食（Well Fed）buff（绿=有，黄=不到 60 秒，黑=没有，洋红=读不到）；
+      块 41 = R=正在进食（身上有“进食/Food”光环），G=光环读得到，B=1（v0.14 签名）。
 v0.13：给 WowGrinder v8.40“Tab 找怪”用：目标的 玩家/精英/稀有 和 等级差。
       块 36 = R=目标是玩家，G=精英（elite / rareelite / worldboss），B=稀有（rare，非精英）；
       块 37 = R=“是不是玩家”读得到，G=“精英/稀有”读得到，B=1（v0.13 签名）；
@@ -62,6 +65,15 @@ local CFG = {
     { block = 26, ids = { 1126, 5232, 6756, 5234, 8907, 9884, 9885, 26990, 48469, 21849, 21850, 26991, 48470, 289318 },
       names = { "野性印记", "野性赐福", "Mark of the Wild", "Gift of the Wild" } },
   },
+  -- v0.14 充分进食（Well Fed）：各种食物给的“充分进食”法术 ID + 名字（名字里含“充分进食”/“Well Fed”也算）
+  wellFed = { ids = { 19705, 19706, 19708, 19709, 19710, 19711, 24799, 25661, 18125, 18141, 18191, 18192, 18193,
+                      18194, 18222, 22730, 23697, 24870, 25694, 25941, 26276, 46899 },
+              names = { "充分进食", "Well Fed" }, sub = { "充分进食", "Well Fed" } },
+  -- v0.14 正在进食：“进食”光环（名字完全相同才算，免得把“充分进食”当成在吃）
+  eating = { ids = { 433, 434, 435, 1127, 1129, 1131, 2639, 5004, 5005, 5006, 5007, 6410, 7737, 10256, 10257,
+                     18229, 18230, 18231, 18232, 18233, 18234, 24005, 24707, 24800, 25660, 25695, 25700, 25886,
+                     26260, 26472, 28616, 29008, 29073 },
+             names = { "进食", "Food", "进食饮水", "Food & Drink" }, notsub = { "充分", "Well Fed" } },
   buffLowSec = 60,     -- 剩余不到 N 秒算“快没了”（黄）
 }
 
@@ -90,7 +102,7 @@ local frame = CreateFrame("Frame", "BotStatusFrame", nil) -- 不挂 UIParent：A
 frame:SetFrameStrata("TOOLTIP")
 frame:SetFrameLevel(9999)
 
-local NUM_BLOCKS = 40   -- v0.13：36-39 = 目标 玩家/精英/等级差
+local NUM_BLOCKS = 42   -- v0.13：36-39 = 目标 玩家/精英/等级差；v0.14：40 充分进食，41 正在进食
 local NUM_BARS = 4
 local BIN_A, BIN_B, BIN_C = 25, 25, 25
 local blocks, bars, binA, binB, binC = {}, {}, {}, {}, {}
@@ -513,6 +525,22 @@ local function AuraRemain(aura)
   return math.max(0.01, exp - GetTime())
 end
 
+local function NameMatch(bd, s, nm)
+  if not nm or type(nm) ~= "string" then return false end
+  if bd.notsub then
+    for _, p in ipairs(bd.notsub) do
+      if string.find(nm, p, 1, true) then return false end
+    end
+  end
+  if s.names[nm] then return true end
+  if bd.sub then
+    for _, p in ipairs(bd.sub) do
+      if string.find(nm, p, 1, true) then return true end
+    end
+  end
+  return false
+end
+
 local function FindBuff(bd)
   local s = BuffSet(bd)
   local readable = false
@@ -541,7 +569,7 @@ local function FindBuff(bd)
       if type(a) == "table" then
         local id, nm = plain(a.spellId), plain(a.name)
         if id ~= nil or nm ~= nil then readable = true end
-        if (id and s.ids[id]) or (nm and s.names[nm]) then return AuraRemain(a) end
+        if (id and s.ids[id]) or NameMatch(bd, s, nm) then return AuraRemain(a) end
       end
     end
   end
@@ -553,7 +581,7 @@ local function FindBuff(bd)
       exp = plain(exp)
       if nm == nil and id == nil then readable = readable or ok; break end
       readable = true
-      if (id and s.ids[id]) or (nm and s.names[nm]) then
+      if (id and s.ids[id]) or NameMatch(bd, s, nm) then
         if type(exp) ~= "number" or exp <= 0 then return 0 end
         return math.max(0.01, exp - GetTime())
       end
@@ -843,6 +871,15 @@ local function Update()
     Paint(bd.block, col)
   end
   Paint(27, C.cyan)
+  -- v0.14：40 充分进食 / 41 正在进食 + 签名
+  local wf, eat = nil, nil
+  pcall(function() wf = FindBuff(CFG.wellFed) end)
+  pcall(function() eat = FindBuff(CFG.eating) end)
+  if wf == nil then Paint(40, C.magenta)
+  elseif wf == false then Paint(40, C.black)
+  elseif wf > 0 and wf < CFG.buffLowSec then Paint(40, C.yellow)
+  else Paint(40, C.green) end
+  Paint(41, { (eat and eat ~= false) and 1 or 0, eat ~= nil and 1 or 0, 1 })
   Paint(28, C.green)    -- v0.11 签名（v0.10 = 白，v0.8/0.9 = 黄）：目标标记在姓名板中间 + 能打的怪都有 黄|蓝 标记
   -- v0.11：32 标记状态 / 33 姓名板个数
   ghostMode = plain(UnitIsGhost("player")) == true
@@ -950,7 +987,7 @@ local function ApplyNameplateDistance(verbose)
   npDist = best and math.floor(best + 0.5) or nil
   npOK = npDist ~= nil
   if verbose then
-    print(string.format("|cff40ff40BotStatus v0.13|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
+    print(string.format("|cff40ff40BotStatus v0.14|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
       tostring(npDist or "读不到"), tostring(before or "?")))
   end
 end

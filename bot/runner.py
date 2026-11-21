@@ -121,6 +121,9 @@ class BotRunner:
              f"（两具尸体确认={'开' if lt0.get('bagfull_two_corpses', False) else '关'}）；"
              f"v8.48 背包满只捡钱={'开' if lt0.get('full_bag_money_only', True) else '关'}"
              f"（不剥皮，捡过的尸体记 {lt0.get('full_bag_memory_s', 300)} 秒）")
+        ea0 = cfg.get("eat", {})
+        dlog(f"v8.49 自动进食={'开' if ea0.get('enabled', True) else '关'}（进食键「{ea0.get('key') or '没填'}」，"
+             f"没“充分进食”buff、附近没怪时变人形吃 ≥ {ea0.get('min_s', 11)} 秒；要插件 v0.14）；背包满只捡钱不再按 Esc")
         from .config import key_conflicts
         for c in key_conflicts(cfg):
             log(f"⚠️ 键位冲突：{c}，请在“基本设置”页改一个")

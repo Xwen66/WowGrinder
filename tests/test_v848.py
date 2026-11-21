@@ -48,7 +48,7 @@ class Defaults(unittest.TestCase):
     def test_defaults(self):
         l = DEFAULT_CONFIG["loot"]
         self.assertTrue(l["full_bag_money_only"])
-        self.assertEqual((l["full_bag_close_key"], l["full_bag_memory_s"], l["full_bag_memory_dist"]), ("esc", 300, 0.15))
+        self.assertEqual((l["full_bag_memory_s"], l["full_bag_memory_dist"]), (300, 0.15))   # v8.49：去掉了关窗口键
 
 
 class Detect(V848):
@@ -76,14 +76,11 @@ class MoneyOnly(V848):
         self.assertFalse(any(m.startswith("🔪") for m in self.logs))
         self.assertTrue(any(m.startswith("🎒💰 背包满") for m in self.logs))
 
-    def test_close_window_when_corpse_selected(self):
+    def test_never_esc(self):                                  # v8.49：不再按 Esc（以前 40% 会打开游戏菜单）
         self.full()
         self.g.loot(o(kind="dead", lootable=True), count_kill=True)
-        self.g.tick(o(kind="dead", lootable=True))
-        self.assertEqual(self.esc(), 1)
-        self.assertTrue(any("关掉拾取窗口" in m for m in self.logs))
-        self.ticks(n=10, kind="dead", lootable=True)          # 还选着这具 → 不再按 Esc、不再捡
-        self.assertEqual(self.esc(), 1)
+        self.ticks(n=10, kind="dead", lootable=True)          # 还选着这具 → 不按 Esc、不再捡
+        self.assertEqual(self.esc(), 0)
         self.assertEqual(self.f(), 1)
 
     def test_no_target_no_esc(self):
@@ -170,7 +167,7 @@ class Strings(unittest.TestCase):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         with open(os.path.join(root, "gui", "app.py"), encoding="utf-8") as fh:
             app = fh.read()
-        self.assertIn("熊德自动打怪 v8.48", app)
+        self.assertIn("熊德自动打怪 v8.4", app)      # v8.49 起标题版本在新测试里查
         self.assertIn('"full_bag_money_only"', app)
         with open(os.path.join(root, "README_中文.md"), encoding="utf-8") as fh:
             self.assertIn("v8.48 背包满只捡钱", fh.read())

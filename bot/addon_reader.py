@@ -97,6 +97,10 @@ class AddonState:
     t_rare: bool = False           # 稀有（非精英）
     t_level_diff: int | None = None  # 目标等级 - 自己等级；None = 没目标/读不到
     t_skull: bool = False          # 骷髅（??）
+    # v0.14 自动进食
+    eatinfo: bool = False          # 插件 v0.14（块 40/41 有效）
+    well_fed: str | None = None    # 充分进食 buff：yes/low/no/unknown；None = 旧插件
+    eating: bool | None = None     # 正在进食；None = 读不到
     marker_center: bool = False    # v0.10：标记在目标姓名板正中间（块 28 白），可以右键点它
     marker_state: str = "unknown"  # shown=标记挂在目标姓名板上 / no_plate / error / none=没目标 / unknown=旧插件
     facing_count: int | None = None  # 面向错误计数 0-7（循环）；None = 旧插件
@@ -341,6 +345,11 @@ class AddonReader:
                 code = hb[0] * 32 + hb[1] * 16 + hb[2] * 8 + lb[0] * 4 + lb[1] * 2 + lb[2]
                 st.t_skull = code == 63
                 st.t_level_diff = None if code == 0 else (99 if code == 63 else code - 32)
+                if frame.shape[1] >= x0 + 42 * bs and to_bits(self._block(frame, 41))[2] == 1:
+                    st.eatinfo = True                                      # v0.14
+                    st.well_fed = {"green": "yes", "yellow": "low", "black": "no"}.get(c(40), "unknown")
+                    eb = to_bits(self._block(frame, 41))
+                    st.eating = bool(eb[0]) if eb[1] else None
         sd = self.field(frame, "since_damage")
         st.since_damage = None if sd is None else (math.inf if sd >= 127 else float(sd))
 
@@ -386,7 +395,7 @@ def apply_gamma(img, gamma: float = 1.2, brightness: int = 0):
 
 def paint_test_frame(state: dict, size=(200, 400), block=10, beat=0, pos=None, facing=None, map_id=None,
                      bin_pct=None, version=7, since_damage=None, marker="black", facing_count=0, v08=False,
-                     combo=None, energy_lvl=None, marker_center=False, enemy=None, death=None, tinfo=None):
+                     combo=None, energy_lvl=None, marker_center=False, enemy=None, death=None, tinfo=None, eat=None):
     """按 v0.7 编码表画一帧（BGR）。
 
     state: {块号: 颜色名 或 ('pct', 数值)（画到 R 通道，旧式）, "bars": (血, 目标, 怒气, 法力)}
@@ -395,6 +404,8 @@ def paint_test_frame(state: dict, size=(200, 400), block=10, beat=0, pos=None, f
     bin_pct: {"hp": 数值|None, "target_hp":..., "rage":..., "mana":...}（二进制百分比，None = 无效）
     """
     img = np.zeros((size[0], size[1], 3), np.uint8)
+    if eat is not None and tinfo is None:
+        tinfo = {}
     if tinfo is not None and death is None:
         death = {}
     if death is not None and enemy is None:
@@ -488,4 +499,8 @@ def paint_test_frame(state: dict, size=(200, 400), block=10, beat=0, pos=None, f
         put(38 * block, 0, tuple(255 * ((code >> k) & 1) for k in (5, 4, 3)))
         put(39 * block, 0, tuple(255 * ((code >> k) & 1) for k in (2, 1, 0)))
         put(SIG_C13_BLOCK[1] * block, BIN_TOP + SIG_C13_BLOCK[0] * block, PALETTE["magenta"])
+    if eat is not None:
+        # v0.14：eat = {"wf": "green"/"yellow"/"black"/"magenta", "eating": bool, "readable": bool}
+        put(40 * block, 0, PALETTE[eat.get("wf", "black")])
+        put(41 * block, 0, tuple(255 * b for b in (1 if eat.get("eating") else 0, 1 if eat.get("readable", True) else 0, 1)))
     return img
