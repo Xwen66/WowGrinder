@@ -67,6 +67,7 @@ ADVANCED = {
     ("nameplate", "skip_top_pct"), ("nameplate", "stop_settle_s"), ("nameplate", "confirm_px"), ("nameplate", "verify_s"),
     ("nameplate", "bad_s"), ("nameplate", "bad_radius_px"), ("nameplate", "patrol_frames"),
     ("nameplate", "far_click_frames"), ("nameplate", "red_static_turns"),
+    ("nameplate", "red_turn_static_deg"), ("nameplate", "red_turn_static_px"), ("nameplate", "red_turn_hits"),
     ("nameplate", "red_walk_static_s"), ("nameplate", "red_walk_static_px"), ("nameplate", "red_walk_min_move"),
     ("nameplate", "red_walk_bad_s"), ("nameplate", "red_walk_hits"),
     ("nameplate", "far_walk_max_s"), ("nameplate", "far_lost_s"), ("nameplate", "far_skip_s"), ("nameplate", "far_turn_deg"),
@@ -90,7 +91,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.51")
+        self.title("WowGrinder 熊德自动打怪 v8.53")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -624,7 +625,11 @@ class App(tk.Tk):
              "默认开：屏幕上有能打的标记马上右键点；没有就朝红名走、一出标记马上点；都没有才按 Tab。关 = v8.40 的先按 Tab"),
             ("nameplate", "far_click_frames", "朝红名走：看到标记几帧就停下点", "int", None, "v8.50 默认 1 = 马上"),
             ("nameplate", "red_static_turns", "转几次“红名”还不动=界面", "int", None, "v8.50 默认 2；0 = 不检测"),
-            ("nameplate", "red_walk_static_s", "直走几秒“红名”还不动=界面", "float", None, "v8.51 默认 2；0 = 不检测"),
+            ("nameplate", "red_turn_static_deg", "转身几度“红名”还不动=界面", "float", None,
+             "v8.53 默认 10；0 = 不检测（找怪/巡逻/回中心/朝红名走时都看）"),
+            ("nameplate", "red_turn_static_px", "转身时“不动”=小于(px)", "int", None, "v8.53 默认 8（真怪转 10° 挪约 240 像素）"),
+            ("nameplate", "red_turn_hits", "转身判定几次=这次运行都不看", "int", None, "v8.53 默认 1 = 第一次就永久"),
+            ("nameplate", "red_walk_static_s", "走几秒“红名”还不动=界面", "float", None, "v8.53 默认 2；0 = 不检测（不只朝红名走，巡逻/回中心也看）"),
             ("nameplate", "red_walk_static_px", "直走时“不动”=小于(px)", "int", None, "v8.51 默认 5"),
             ("nameplate", "red_walk_min_move", "直走时人至少走了(地图坐标)", "float", None, "v8.51 默认 0.15；卡住不走不算"),
             ("nameplate", "red_walk_bad_s", "直走认定第 1 次：几秒内不看那里", "float", None, "v8.51 默认 120"),

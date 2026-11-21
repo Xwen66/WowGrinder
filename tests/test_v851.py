@@ -99,7 +99,7 @@ class WalkStatic(Search):
         self.assertFalse(any(k in ("left", "right") for k in self.keys()))
         self.walk(self.NAME)
         self.assertIsNone(self.g.far)
-        self.assertTrue(any("直走了" in m and "界面上的红色" in m and "第 1 次" in m for m in self.logs))
+        self.assertTrue(any("人走了" in m and "界面上的红色" in m and "第 1 次" in m for m in self.logs))
         self.assertEqual(self.g.red_ui_bad, [])
         self.assertEqual(len(self.g.red_ui_tmp), 1)
         self.assertEqual(self.g._far_targets(self.o(names=[self.NAME]), self.clock.t), [])
@@ -129,13 +129,13 @@ class WalkStatic(Search):
         self.walk(self.NAME, dxy=3)                               # 走近时名字慢慢挪（0.9 秒挪 9 像素）
         self.assertEqual(self.g.red_ui_bad, [])
         self.assertEqual(self.g.red_ui_tmp, [])
-        self.assertFalse(any("直走了" in m for m in self.logs))
+        self.assertFalse(any("人走了" in m for m in self.logs))
 
     def test_not_moving_not_ui(self):
         self.step(self.o(names=[self.NAME]))
         self.walk(self.NAME, dpos=0.01)                           # 人走得很慢（几乎卡住）→ 不算
         self.assertEqual(self.g.red_ui_tmp, [])
-        self.assertFalse(any("直走了" in m for m in self.logs))
+        self.assertFalse(any("人走了" in m for m in self.logs))
 
     def test_too_short_not_ui(self):
         self.step(self.o(names=[self.NAME]))
@@ -148,13 +148,13 @@ class WalkStatic(Search):
         self.step(self.o(names=[self.NAME]))
         self.walk(self.NAME)
         self.assertEqual(self.g.red_ui_tmp, [])
-        self.assertFalse(any("直走了" in m for m in self.logs))
+        self.assertFalse(any("人走了" in m for m in self.logs))
 
 
 class Strings(unittest.TestCase):
     def test_files(self):
         app = _rd(os.path.join(ROOT, "gui", "app.py"))
-        self.assertIn("熊德自动打怪 v8.51", app)
+        self.assertTrue(re.search(r"熊德自动打怪 v8\.5[1-9]", app))
         for k in ("red_walk_static_s", "red_walk_static_px", "red_walk_min_move", "red_walk_bad_s", "red_walk_hits"):
             self.assertIn(f'"{k}"', app)
         rd = _rd(os.path.join(ROOT, "README_中文.md"))

@@ -111,7 +111,7 @@ class Base(unittest.TestCase):
         n = self.cfg["nameplate"]                                  # v8.28：旧测试不用 点后验证/拉黑/顶部不点/连续 2 帧/远处红名/先停稳
         n.update(verify_s=0, bad_s=0, skip_top_pct=0, patrol_frames=1, far_names=False, stop_settle_s=0)
         # v8.50：旧测试用旧的找怪顺序（Tab → 标记 → 红名）、红名走路按 patrol_frames 停、不做“界面红名”检测（新行为见 test_v850）
-        n.update(plates_first=False, far_click_frames=n["patrol_frames"], red_static_turns=0, red_walk_static_s=0)
+        n.update(plates_first=False, far_click_frames=n["patrol_frames"], red_static_turns=0, red_walk_static_s=0, red_turn_static_deg=0)
         self.cfg["tab_search"]["far_walk_tab"] = True
         if self.LEGACY:
             self.cfg["heal"]["heal_to_pct"] = 0                # v8.11 前：战斗治疗只放一个

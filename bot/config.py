@@ -355,7 +355,12 @@ DEFAULT_CONFIG: dict = {
         "far_click_frames": 1,        # 朝红名走时看到能点的标记几帧就停下点（v8.50：1 = 马上）
         "red_static_turns": 2,        # 朝红名转了这么多次它在屏幕上还不动 → 是界面，不是怪（这次运行都不再看那里）
         "red_static_px": 20,          # “不动”= 位置变化小于这么多像素
-        # v8.51：朝红名直走（不用转身）时：人在走（地图坐标在变）、“红名”在屏幕上却几乎不动 → 是界面
+        # v8.53：判断“红名”是不是界面的主要办法：随时盯着屏幕上的每个红名（找怪/巡逻/回中心/朝红名走都算），
+        # 人转身了 或 人走了一段，它在屏幕上的位置却几乎没变 → 是界面（真怪在 3D 画面里，转身/走动时一定会挪）
+        "red_turn_static_deg": 10.0,  # 朝向变了这么多度（按键转身/朝红名修正方向），红名还在原地 → 界面（0 = 不检测）
+        "red_turn_static_px": 8,      # 转身时“原地”= 离一开始的位置小于这么多像素（转 10° 真怪会挪约 240 像素）
+        "red_turn_hits": 1,           # 转身判定几次就这次运行都不看（1 = 第一次就永久：转身判定几乎不会错）
+        # v8.51：人在走（地图坐标在变）、“红名”在屏幕上却几乎不动 → 是界面（v8.53：不只朝红名走时，巡逻/回中心也算）
         "red_walk_static_s": 2.0,     # 这么多秒内“红名”一直不动（0 = 不检测）
         "red_walk_static_px": 5,      # “不动”= 离一开始的位置小于这么多像素（远处真怪走近也会挪几像素，界面一点不动）
         "red_walk_min_move": 0.15,    # 这段时间里人至少走了这么远（地图坐标；卡住不走不算）
@@ -567,6 +572,12 @@ def _migrate(cfg: dict, loaded: dict) -> dict:
         if same:
             cfg["nameplate"]["red_ui_exclude"] = copy.deepcopy(DEFAULT_CONFIG["nameplate"]["red_ui_exclude"])
         done.append("red_ui_v851")
+    if "red_walk_v853" not in done:                  # v8.53：v8.52 把“走路时红名不动=界面”关成 0 → 改回默认（只改一次）
+        cfg["nameplate"]["red_walk_static_s"] = DEFAULT_CONFIG["nameplate"]["red_walk_static_s"]
+        for k in ("use_addon_ui", "ui_margin_px"):              # v8.52 退回：去掉没用的键
+            cfg["nameplate"].pop(k, None)
+        cfg.get("addon", {}).pop("ui_stale_s", None)
+        done.append("red_walk_v853")
     if "keys_v827" not in done:                      # v8.27：g 改成回春术，互动/拾取键 g / · → `（只改一次）
         for name in ("interact", "loot"):
             if (keys.get(name) or "").strip().lower() in ("g", "`"):

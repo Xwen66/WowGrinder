@@ -125,7 +125,9 @@ class BotRunner:
         dlog(f"v8.50 找怪顺序={'标记 → 红名 → Tab' if np0.get('plates_first', True) else 'Tab → 标记 → 红名（旧）'}"
              f"（朝红名走看到标记 {np0.get('far_click_frames', 1)} 帧就点；转 {np0.get('red_static_turns', 2)} 次不动=界面；"
              f"红名路上按 Tab={'开' if ts0.get('far_walk_tab', False) else '关'}；界面排除区 {len(np0.get('red_ui_exclude') or [])} 个）")
-        dlog(f"v8.51 直走时“红名”不动=界面：{np0.get('red_walk_static_s', 2.0)} 秒内挪不到 {np0.get('red_walk_static_px', 5)} 像素"
+        dlog(f"v8.53 红名是不是界面看它跟不跟着动：人转了 ≥ {np0.get('red_turn_static_deg', 10.0)}° 它挪不到 "
+             f"{np0.get('red_turn_static_px', 8)} 像素 → 界面（{np0.get('red_turn_hits', 1)} 次就这次运行不看）")
+        dlog(f"v8.51 走路时“红名”不动=界面：{np0.get('red_walk_static_s', 2.0)} 秒内挪不到 {np0.get('red_walk_static_px', 5)} 像素"
              f"且人走了 ≥ {np0.get('red_walk_min_move', 0.15)} → 先 {np0.get('red_walk_bad_s', 120)} 秒不看，"
              f"同一位置 {np0.get('red_walk_hits', 2)} 次 → 这次运行不看")
         ea0 = cfg.get("eat", {})

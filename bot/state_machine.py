@@ -213,6 +213,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.red_ui_bad = []             # v8.50：认定是界面的“红名”位置（这次运行都不再看）
         self.red_ui_tmp = []             # v8.51：直走时不动的“红名”位置 [(x, y, 到期时间)]
         self.red_walk_hits = []          # v8.51：直走时认定过的位置 [(x, y)]（同一位置 red_walk_hits 次 → 永久）
+        self.red_turn_hits = []          # v8.53：转身判定过的位置 [(x, y)]
+        self.red_tracks = []             # v8.53：屏幕上正盯着的红名 [{x, y, t0, pos0, fac0, last, n}]
         self.travel_seen = 0             # v8.28：巡逻路上连续几帧看到标记
         self.eng_seen = 0                # v8.32：非战斗连续几帧看到能打的怪的标记
         self.eng_log_t = -1e9
@@ -536,39 +538,77 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         now = self.clock()
         return any(now < t and math.hypot(cx - bx, cy - by) < r for bx, by, t in self.red_ui_tmp)
 
-    def _far_walk_static(self, obs, now, cx, cy, kind) -> bool:
-        """v8.51：朝红名直走时，人在走（地图坐标变了 ≥ red_walk_min_move）、“红名”在屏幕上 red_walk_static_s 秒都没挪过
-        red_walk_static_px → 是界面（技能栏上方的图标、顶部红字报错等）。第 1 次：red_walk_bad_s 秒内不再看那里；
-        同一位置认定 red_walk_hits 次 → 这次运行都不再看。"""
-        f, n = self.far, self._nc()
-        need_s = float(n.get("red_walk_static_s", 0) or 0)
-        if need_s <= 0 or kind != "红名":
+    def _red_track(self, obs, now):
+        """v8.53：每帧把屏幕上的红名和上一帧对上（离一开始的位置 < 容差 = 同一个点）。
+        这个点一直在原地，而人转身 ≥ red_turn_static_deg 度 → 界面（默认第一次就这次运行都不看）；
+        人走了 ≥ red_walk_min_move、过了 red_walk_static_s 秒 → 界面（默认第 1 次 120 秒不看，第 2 次永久）。
+        真怪的名字在 3D 画面里：转 10° 会横着挪约 240 像素，走 8 码以上也会挪；只有界面才会钉在屏幕同一个像素上。
+        返回 True = 这一帧认定了新的界面点。"""
+        n = self._nc()
+        turn_deg = float(n.get("red_turn_static_deg", 0) or 0)
+        walk_s = float(n.get("red_walk_static_s", 0) or 0)
+        if turn_deg <= 0 and walk_s <= 0:
+            self.red_tracks = []
             return False
-        tol = float(n.get("red_walk_static_px", 5))
-        w = f.get("wref")
-        if w is None or math.hypot(cx - w[0], cy - w[1]) > tol or w[3] is None:
-            f["wref"] = (cx, cy, now, obs.pos, 1)
+        names = getattr(obs, "red_names", None) or []
+        if obs.source != "addon" or obs.in_combat:
+            self.red_tracks = []
             return False
-        f["wref"] = w = (w[0], w[1], w[2], w[3], w[4] + 1)
-        if now - w[2] < need_s or w[4] < 3 or obs.pos is None:
-            return False
-        moved = distance(w[3], obs.pos)
-        if moved < float(n.get("red_walk_min_move", 0.15)):
-            return False
+        tol_t = float(n.get("red_turn_static_px", 8))
+        tol_w = float(n.get("red_walk_static_px", 5))
+        fac, pos = getattr(obs, "facing", None), obs.pos
+        alive, marked = [], False
+        for nm in names:
+            cx, cy = nm["x"] + nm["w"] / 2, nm["y"] + nm["h"] / 2
+            if self._red_ui(cx, cy):
+                continue
+            tr = next((t for t in self.red_tracks if t not in alive and math.hypot(cx - t["x"], cy - t["y"]) <= tol_t), None)
+            if tr is None:
+                alive.append({"x": cx, "y": cy, "t0": now, "pos0": pos, "fac0": fac, "last": now, "n": 1,
+                              "still": True})
+                continue
+            tr["last"], tr["n"] = now, tr["n"] + 1
+            if math.hypot(cx - tr["x"], cy - tr["y"]) > tol_w:
+                tr["still"] = False                         # 挪了几像素：走路判定不算（转身判定的容差大一点）
+            alive.append(tr)
+            if tr["n"] < 2:
+                continue
+            if turn_deg > 0 and fac is not None and tr["fac0"] is not None:
+                d = abs((fac - tr["fac0"] + math.pi) % (2 * math.pi) - math.pi)
+                if math.degrees(d) >= turn_deg:
+                    self._mark_ui(cx, cy, now, "turn", f"人转了 {math.degrees(d):.0f}°")
+                    alive.remove(tr)
+                    marked = True
+                    continue
+            if walk_s > 0 and tr["still"] and tr["n"] >= 3 and now - tr["t0"] >= walk_s \
+                    and pos is not None and tr["pos0"] is not None:
+                moved = distance(tr["pos0"], pos)
+                if moved >= float(n.get("red_walk_min_move", 0.15)):
+                    self._mark_ui(cx, cy, now, "walk", f"人走了 {moved:.2f}（{now - tr['t0']:.1f} 秒）")
+                    alive.remove(tr)
+                    marked = True
+        keep_s = 1.0
+        self.red_tracks = alive + [t for t in self.red_tracks if t not in alive and now - t["last"] <= keep_s
+                                   and not self._red_ui(t["x"], t["y"])]
+        return marked
+
+    def _mark_ui(self, cx, cy, now, kind, why):
+        """v8.53：认定 (cx, cy) 是界面：kind=turn 用 red_turn_hits，kind=walk 用 red_walk_hits / red_walk_bad_s。"""
+        n = self._nc()
         r = max(30.0, float(n.get("red_static_px", 20)) * 2)
-        self.red_walk_hits.append((cx, cy))
-        hits = sum(1 for bx, by in self.red_walk_hits if math.hypot(cx - bx, cy - by) < r)
-        need_hits = max(1, int(n.get("red_walk_hits", 2) or 1))
-        if hits >= need_hits:
+        lst = self.red_turn_hits if kind == "turn" else self.red_walk_hits
+        lst.append((cx, cy))
+        hits = sum(1 for bx, by in lst if math.hypot(cx - bx, cy - by) < r)
+        need = max(1, int(n.get("red_turn_hits" if kind == "turn" else "red_walk_hits", 1 if kind == "turn" else 2) or 1))
+        if hits >= need:
             self.red_ui_bad.append((cx, cy))
             how = "这次运行不再看这个位置"
         else:
             bad_s = float(n.get("red_walk_bad_s", 120))
             self.red_ui_tmp.append((cx, cy, now + bad_s))
-            how = f"{bad_s:.0f} 秒内不再看这个位置（再认定 {need_hits - hits} 次就这次运行都不看）"
-        self.log(f"🚫 朝“红名”({cx:.0f},{cy:.0f}) 直走了 {now - w[2]:.1f} 秒（走了 {moved:.2f}），它在屏幕上一动不动 → "
-                 f"是界面上的红色（技能栏/报错字等），不是怪；第 {hits} 次，{how}")
-        return True
+            how = f"{bad_s:.0f} 秒内不再看这个位置（再认定 {need - hits} 次就这次运行都不看）"
+        self.log(f"🚫 “红名”({cx:.0f},{cy:.0f})：{why}，它在屏幕上一动不动 → 是界面上的红色（技能栏/报错字/头像等），"
+                 f"不是怪；第 {hits} 次，{how}")
 
     def _far_static(self, cx, cy, kind) -> bool:
         """v8.50：每次朝红名转身记一下它的屏幕位置；转了 red_static_turns 次还在原地 → 是界面，拉黑这个位置。"""
@@ -653,8 +693,6 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             f["seen"] = now
             fw, _ = obs.frame_size
             cx, cy, kind = min(tg, key=lambda t: abs(t[0] - fw / 2))
-            if self._far_walk_static(obs, now, cx, cy, kind):
-                return self._far_end("那个“红名”是界面", skip=False)
             deg = self._far_bearing(obs, cx, cy)
             if abs(deg) > float(n.get("far_turn_deg", 12)) * 1.5 and now - f["steer_t"] >= 0.5:
                 if self._far_static(cx, cy, kind):
@@ -1185,6 +1223,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             self._wf_end()                  # v8.46：不在接近目标了（被打/治疗/换目标）→ 松开前进键
         if self._reconnect_tick(obs, now):  # v8.44：断线/登录/选角色界面 → 每 10 秒按 Enter，进游戏后继续
             return
+        if self._red_track(obs, now) and self.far is not None:   # v8.53：转身/走路时不动的红名 = 界面
+            self._far_end("那个“红名”是界面", skip=False)
 
         # 1) 死亡检测
         if obs.source == "addon":
