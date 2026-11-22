@@ -65,7 +65,7 @@ class ReconnectMixin:
                     pass
                 self.log(f"🔌 认出断线/登录/选角色界面（{obs.glue_what}）→ 每 {float(c['interval_s']):.0f} 秒按一次 Enter 重连")
                 self._event("disconnect", f"断线/登录界面：{obs.glue_what}", 0)
-            self._rc_press(c, now)
+            self._rc_press(c, now, obs)
             return True
         self.rc_since = None
         if not self.rc_active:
@@ -93,16 +93,21 @@ class ReconnectMixin:
             self.rc_wait_noted = True
             self.log(f"⏳ 重连中：没认出界面、也还没进游戏（读条或登录中）→ 等着；{blind:.0f} 秒后还这样就照样按 Enter")
         if now - self.rc_seen >= blind:
-            self._rc_press(c, now)
+            self._rc_press(c, now, obs)
         return True
 
-    def _rc_press(self, c, now):
+    def _rc_press(self, c, now, obs=None):
         if now - self.rc_last >= float(c.get("interval_s", 10.0)):
             self.rc_last = now
             self.rc_n += 1
             self._ctx(f"断线重连：按 Enter（第 {self.rc_n} 次）")
             self.inp.press(str(c.get("key") or "enter"))
-            self.log(f"🔌 断线 → 按 Enter 重连（第 {self.rc_n} 次）")
+            o = obs if obs is not None else getattr(self, "last_obs", None)
+            what = getattr(o, "glue_what", "") if o is not None else ""
+            self.log(f"🔌 断线 → 按 Enter 重连（第 {self.rc_n} 次）" + (f"：看到 {what}" if what else "：界面没认出来，照样按"))
+            # v8.63：每按一次都存截图（看按完以后变成什么界面）；最多每 interval_s 秒一张
+            self._event("reconnect_press", f"按 Enter 重连第 {self.rc_n} 次（{what or '没认出界面'}；"
+                                           f"{getattr(o, 'glue_info', '') if o is not None else ''}）", 0)
 
     def reconnect_label(self) -> str:
         return f"🔌 断线重连中（按了 {self.rc_n} 次 Enter）"
