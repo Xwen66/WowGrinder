@@ -265,8 +265,8 @@ class Guards(RepBase):
         self.assertFalse(self.g.stopped)
         for _ in range(10):
             self.t(ro(cd=40, dur=4))
-        self.assertTrue(self.g.stopped)
-        self.assertIn("炉石还在冷却", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
+        self.assertTrue(any("炉石还在冷却" in m for m in self.logs))
 
     def test_not_configured(self):
         self.k["vendor_target"] = ""
@@ -287,8 +287,8 @@ class Guards(RepBase):
     def test_no_cast_stops(self):
         for _ in range(30):
             self.t(ro(casting=False))
-        self.assertTrue(self.g.stopped)
-        self.assertIn("都没开始读条", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
+        self.assertTrue(any("都没开始读条" in m for m in self.logs))
         self.assertEqual(self.keys().count("h"), 3)
 
     def test_wrong_landing_spot_stops(self):
@@ -297,8 +297,8 @@ class Guards(RepBase):
         self.clock.t += 10
         self.t(ro(casting=False))
         self.t(ro(pos=(10.0, 10.0), mp=TOWN, form="caster"))
-        self.assertTrue(self.g.stopped)
-        self.assertIn("位置不对", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
+        self.assertTrue(any("位置不对" in m for m in self.logs))
 
     def test_wrong_map_stops(self):
         self.start_cast()
@@ -306,8 +306,8 @@ class Guards(RepBase):
         self.clock.t += 10
         self.t(ro(casting=False))
         self.t(ro(pos=(60.0, 70.0), mp=9999, form="caster"))
-        self.assertTrue(self.g.stopped)
-        self.assertIn("没有当前地图", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
+        self.assertTrue(any("没有当前地图" in m for m in self.logs))
 
     def test_merchant_never_opens_stops(self):
         self.start_cast()
@@ -315,8 +315,8 @@ class Guards(RepBase):
         self.walk_to_vendor()
         for _ in range(40):
             self.t(ro(pos=(63.0, 75.0), mp=TOWN, form="caster"))
-        self.assertTrue(self.g.stopped)
-        self.assertIn("商人窗口都没开", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
+        self.assertTrue(any("商人窗口都没开" in m for m in self.logs))
         self.assertEqual(self.keys().count("n"), 3)
 
     def test_not_repaired_stops(self):
@@ -326,8 +326,8 @@ class Guards(RepBase):
         self.t(ro(pos=(63.0, 75.0), mp=TOWN, form="caster"))
         for _ in range(20):
             self.t(ro(pos=(63.0, 75.0), mp=TOWN, form="caster", merchant=True))
-        self.assertTrue(self.g.stopped)
-        self.assertIn("钱不够", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
+        self.assertTrue(any("钱不够" in m for m in self.logs))
 
     def test_stuck_too_often_stops(self):
         self.start_cast()
@@ -338,8 +338,8 @@ class Guards(RepBase):
             o = ro(pos=(60.05, 70.0), mp=TOWN, form="caster")
             o.facing = bearing_to((60.05, 70.0), (62.0, 72.0))
             self.t(o)
-        self.assertTrue(self.g.stopped)
-        self.assertIn("卡住", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
+        self.assertTrue(any("卡住" in m for m in self.logs))
 
     def test_died_cancels(self):
         self.start_cast()

@@ -6,8 +6,8 @@
 → 耐久回到 repaired_pct → 按 Esc 关商人 → 照路线后半段（修理商 → 刷怪区）走回去（换地图时朝最后一段的方向一直走，直到进入下一张图）
 → 走到最近的同地图中心，接着打怪。
 
-任何一步失败（按了没反应、卡住太多次、超时、走错地图、修不了）→ 停止 + 截图，不会到处乱走。
-炉石在冷却 / 没设置好 → 接着打，耐久 ≤ stop_pct 才停止。
+任何一步失败（按了没反应、卡住太多次、超时、走错地图、修不了）→ v8.58：不停止，截图 + 回最近的中心接着刷怪，
+fail_retry_s 后再去（卖垃圾失败 bag_trip_cd_s 后）。炉石在冷却 / 没设置好 → 接着打，耐久 ≤ stop_pct 只提醒。
 """
 from __future__ import annotations
 
@@ -44,6 +44,8 @@ REPAIR_DEFAULTS = {
     "bag_trip_cd_s": 1800.0,  # 卖完垃圾后这么久内背包又满了 → 不再专门回去卖，照旧只捡钱
     "sell_wait_s": 3.0,       # 背包满去卖垃圾：商人窗口开着至少等这么久（插件分批卖）再关
     "cat_travel": True,       # 去修理商 / 走回来的路上用猎豹形态走（快）
+    # v8.58（t226u）：修理/卖垃圾失败不停止 → 截图 + 回去刷怪
+    "fail_retry_s": 600.0,    # 修理失败后这么久内耐久还低也不再去（卖垃圾失败按 bag_trip_cd_s 算）
 }
 
 DETOURS = (60, -60, 90, -90, 120, -120)
@@ -79,6 +81,7 @@ class RepairMixin:
         self.rp_attempts = 0
         self.rp_old_noted = False
         self.rp_bag_cd = -1e9           # v8.57：这个时间之前背包满了不专门回去卖
+        self.rp_dur_cd = -1e9           # v8.58：修理失败后这个时间之前耐久低也不再去
 
     def repair_label(self) -> str:
         rp = getattr(self, "rp", None)
@@ -117,11 +120,11 @@ class RepairMixin:
         return pts
 
     def _rp_stop_low(self, dur, why) -> bool:
+        """v8.58：不再停止。耐久 ≤ stop_pct 只写提醒 + 截图（10 分钟一次），接着打。"""
         stop = float(self._rp_cfg().get("stop_pct", 5) or 0)
         if stop > 0 and dur is not None and dur <= stop:
-            self._stop_walk()
-            self.stop(f"耐久 {dur:.0f}% ≤ {stop:.0f}%，{why} → 停止，等你来修")
-            return True
+            self._warn("rplow", f"⚠️⚠️ 耐久 {dur:.0f}% ≤ {stop:.0f}%，{why} → 修不了，不停止，接着打（装备坏了属性会掉，请尽快来修）", 600)
+            self._event("repair_low", f"耐久 {dur:.0f}%，{why}（不停止）", 600)
         return False
 
     # ------------------------------------------------------------------ 入口
@@ -146,6 +149,9 @@ class RepairMixin:
             return False
         line = float(c.get("durability_pct", 20))
         low = dur <= line
+        if low and now < self.rp_dur_cd:
+            self._rp_stop_low(dur, f"上次修理失败，{(self.rp_dur_cd - now) / 60:.0f} 分钟后再去")
+            low = False
         bag = bool(c.get("bag_trip", True)) and bool(getattr(self, "bag_full", False)) \
             and now >= getattr(self, "rp_bag_cd", -1e9)
         if not low and not bag:
@@ -184,12 +190,10 @@ class RepairMixin:
         if cd is None or cd > 0:
             self._warn("rpcd", f"🔧 耐久 {dur:.0f}% ≤ {line:.0f}%，但炉石"
                                + (f"还要 {cd} 分钟才能用" if cd else "冷却读不到")
-                               + f" → 接着打，耐久 ≤ {float(c.get('stop_pct', 5)):.0f}% 就停止", 300)
+                               + " → 接着打", 300)
             return self._rp_stop_low(dur, "炉石还在冷却")
         if self.rp_attempts >= int(c.get("max_attempts", 3)):
-            self._stop_walk()
-            self.stop(f"回城修理已经被打断 {self.rp_attempts} 次（读炉石时被怪打）")
-            return True
+            return self._rp_fail(f"读炉石被怪打断 {self.rp_attempts} 次", why=why)
         self._rp_begin(obs, now, dur, why)
         return True
 
@@ -265,11 +269,52 @@ class RepairMixin:
         k = max(k, min(rp["wi"], len(pts) - 1))          # 不回头去已经走过的点
         rp.update(wi=k, seg_t0=now, prog_pos=obs.pos, prog_t=now, stuck=0, lvl=0, cross_t0=None)
 
-    def _rp_fail(self, why) -> bool:
+    def _rp_fail(self, reason, why=None) -> bool:
+        """v8.58（t226u）：修理/卖垃圾失败 → 不停止：截图 + 写日志 → 回最近的中心（没有就地）接着刷怪；
+        修理 fail_retry_s 内不再去，卖垃圾 bag_trip_cd_s 内不再去（背包满照旧只捡钱）。"""
+        c = self._rp_cfg()
+        now = self.clock()
+        obs = getattr(self, "last_obs", None)
         self._stop_walk()
-        self.rp = None
-        self.stop(f"回城修理失败：{why}")
+        rp, self.rp = self.rp, None
+        why = why or (rp or {}).get("why", "dur")
+        self.rp_low_since = None
+        self.rp_attempts = 0
+        parts = []
+        if why in ("dur", "both"):
+            retry = float(c.get("fail_retry_s", 600.0))
+            self.rp_dur_cd = now + retry
+            parts.append(f"{retry / 60:.0f} 分钟后耐久还低再去修")
+        if why in ("bag", "both"):
+            cd = float(c.get("bag_trip_cd_s", 1800.0))
+            self.rp_bag_cd = now + cd
+            parts.append(f"{cd / 60:.0f} 分钟内背包满不再专门回去卖（照旧只捡钱）")
+        cn = self._rp_why_cn(why)
+        self.log(f"⚠️ 回城{cn}失败：{reason} → 不停止，截图，回去刷怪（{'；'.join(parts)}）")
+        self._event("repair_fail", f"{cn}失败：{reason}（不停止）", 0)
+        self._rp_back_to_grind(obs)
         return True
+
+    def _rp_back_to_grind(self, obs):
+        """回最近的同地图中心；当前地图没有中心 → 就地接着打。"""
+        from .state_machine import State
+        self.travel = False
+        if obs is None or obs.pos is None:
+            self.state = State.SEARCHING
+            self.log("🧭 读不到坐标 → 就地接着打")
+            return
+        cands = [(distance(obs.pos, cc[:2]), i) for i, cc in enumerate(self.centers) if self._same_map(cc, obs.map_id)]
+        if not cands and self.home is not None and self._same_map(self.home, obs.map_id):
+            cands = [(distance(obs.pos, self.home[:2]), -1)]
+        if not cands:
+            self.state = State.SEARCHING
+            self.log(f"🧭 地图 {obs.map_id} 上没有中心 → 就地接着打（找不到怪的话请你把我带回刷怪区）")
+            return
+        d, i = min(cands)
+        if i >= 0:
+            self.ci, self.home = i, self.centers[i]
+        self._to_bear(obs)
+        self.start_return(obs)
 
     # ------------------------------------------------------------------ 每帧
     def _rp_step(self, obs, now) -> bool:

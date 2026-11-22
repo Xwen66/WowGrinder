@@ -134,6 +134,7 @@ class BotRunner:
              f"停着 Tab 连续 {ts0.get('miss_limit', 3)} 次没选到 → 暂停 {ts0.get('miss_backoff_s', 30)} 秒；"
              f"中心连续 {ar0.get('center_skip_fails', 2)} 次去不了 → 先跳过（v8.55：到了任何一个中心就全部恢复）")
         rp0 = cfg.get("repair", {})
+        dlog(f"v8.58 修理/卖垃圾失败不停止 → 截图，回去刷怪，{float(rp0.get('fail_retry_s', 600)) / 60:.0f} 分钟后再去修")
         dlog(f"v8.57 路上无视怪物={'开' if rp0.get('ignore_combat', True) else '关'}（血量 ≤ {rp0.get('fight_back_hp_pct', 40)}% 才还手），"
              f"背包满回去卖={'开' if rp0.get('bag_trip', True) else '关'}，路上猎豹={'开' if rp0.get('cat_travel', True) else '关'}")
         dlog(f"v8.56 使用炉石={'开' if rp0.get('use_hearth', True) else '关（走路去修理：最近的中心 → 回程路线倒着走 → 修理商）'}")

@@ -95,13 +95,13 @@ class Walk(RepBase):
         self.assertFalse(any("炉石键" in m and "缺" in m for m in self.logs))
         for _ in range(8):
             self.go((42.0, 61.0), dur=4)
-        self.assertTrue(self.g.stopped)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
 
     def test_no_center_on_map_stops(self):
         for _ in range(8):
             self.go((42.0, 61.0), mp=777)
-        self.assertTrue(self.g.stopped)
-        self.assertIn("没有中心", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
+        self.assertTrue(any("没有中心" in m for m in self.logs))
 
     def test_stuck_stops(self):
         from bot.navigation import bearing_to
@@ -110,16 +110,16 @@ class Walk(RepBase):
             o = ro(pos=(42.0, 61.0), mp=ZONE)
             o.facing = bearing_to((42.0, 61.0), (40.0, 60.0))
             self.t(o)
-        self.assertTrue(self.g.stopped)
-        self.assertIn("卡住", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
+        self.assertTrue(any("卡住" in m for m in self.logs))
 
     def test_segment_timeout_stops(self):
         self.cfg["repair"]["seg_timeout_s"] = 5
         self.start()
         self.clock.t += 10
         self.go((40.5, 60.5))
-        self.assertTrue(self.g.stopped)
-        self.assertIn("走了 5 秒还没走完", self.g.stop_reason)
+        self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
+        self.assertTrue(any("走了 5 秒还没走完" in m for m in self.logs))
 
 
 class HearthUnchanged(RepBase):
