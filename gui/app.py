@@ -91,7 +91,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.61")
+        self.title("WowGrinder 熊德自动打怪 v8.62")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -1172,6 +1172,11 @@ class App(tk.Tk):
             ("max_clicks", "连点几次没修好就转一下身", "int", "默认 2；转完身又先右键点；面向错误不再按互动键"),
             ("restore_mouse", "点完把鼠标移回原位", "bool", ""),
             ("offset_y", "点击位置往下偏移(像素)", "int", "默认 0（标记中心 = 姓名板中心）"),
+            ("nameplate_first", "v8.62 调朝向先右键点姓名板", "bool",
+             "默认开：面向错误/距离太远/打不出伤害 → 右键点当前目标的姓名板（近战内也点），角色自动朝向；"
+             "看不到或怪贴在脚下 → 先后退一步再点；战斗中不再左右盲转。关掉 = 用 v8.61 的旧做法"),
+            ("np_back_ms", "看不到姓名板：后退一步(ms)", "int", "默认 600"),
+            ("np_max", "右键/后退最多几次", "int", "默认 4；还不行 → 放弃（怪在打我就不换目标，重新来）"),
         ]
         for i, (k, label, kind, tip) in enumerate(fc, start=r + 3):
             self._field(f, i, label, "face_click", k, kind, tip=tip)

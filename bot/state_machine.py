@@ -314,6 +314,61 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.last_damage_t: float | None = None   # 最近一次打出伤害（目标掉血 或 插件战斗日志）
         self.rec_fails = 0
         self.rec_last: float | None = None        # 最近一次补救动作时间
+        self._np_reset()
+
+    def _np_reset(self):
+        """v8.62：姓名板调朝向这一轮的计数清零。"""
+        self.np_n, self.np_backed, self.np_act_t = 0, False, -1e9
+
+    def _np_on(self) -> bool:
+        return bool((self.cfg.get("face_click") or {}).get("nameplate_first", True))
+
+    def _np_face(self, obs, now, why, recover=False):
+        """v8.62（t235u）：战斗中调朝向 → 右键点“当前目标”的姓名板标记（插件确认标记挂在当前目标姓名板上），角色自动朝向；
+        看不到标记 / 怪贴在脚下（近战 + 标记在中间 + 面向错误）→ 先后退一大步让姓名板露出来，再右键点。绝不左右盲转。
+        返回 'clicked' / 'backed' / 'gaveup' = 这一帧做了动作；'wait' = 等上一步生效；None = 什么都没做（照常放技能）。"""
+        fc, k, st = self.cfg.get("face_click", {}) or {}, self.cfg["keys"], self._st()
+        if not recover and self.np_act_t > -1e8 and getattr(obs, "facing_count", None) is not None \
+                and self.last_facing_err_t <= self.np_act_t + 0.2:
+            return "wait"            # 上一步之后还没有新的面向错误（报错灯亮着是旧的）
+        if now - self.np_act_t < float(fc.get("cooldown_s", 0.9)):
+            return "wait"
+        if self.np_n >= max(1, int(fc.get("np_max", 4))):
+            self.log(f"⚠️ {why}：右键姓名板/后退 {self.np_n} 次还是没修好")
+            self._np_reset()
+            return "gaveup" if self._face_give_up(now, "右键姓名板/后退") else None
+        mk = self._has_marker(obs) and getattr(obs, "marker_state", "") == "shown"
+        overlap = False
+        if mk and not recover and obs.range == "melee":
+            b = self._target_bearing(obs)
+            overlap = b is not None and b[1] == "front" and abs(b[0]) <= float(st.get("face_center_deg", 15))
+        if mk and (not overlap or self.np_backed):
+            if self._rclick_wait(now):
+                self._warn("npwait", f"[面向] {why} → 等右键间隔（{self._rgap():.0f} 秒）到了再右键点目标姓名板（不盲转）", 3)
+                return "wait"
+            self._click_marker(obs, f"{why}：右键点当前目标姓名板")
+            self.np_n += 1
+            self.np_act_t = self.fclick_t = now
+            self.fast_until = max(self.fast_until, now + 0.5)
+            self.log(f"🖱️ {why} → 右键点当前目标姓名板（标记 {int(obs.marker[0])},{int(obs.marker[1])}），"
+                     f"角色自动朝向（第 {self.np_n} 次，不盲转）")
+            return "clicked"
+        ms = float(fc.get("np_back_ms", 600) or 0)
+        if not self.np_backed and ms > 0 and k.get("back"):
+            self.np_backed = True
+            self.np_n += 1
+            self.np_act_t = self.fclick_t = now
+            what = ("怪贴在脚下（标记在屏幕中间）" if overlap else
+                    "目标没有姓名板" if getattr(obs, "marker_state", "") == "no_plate" else "这一帧看不到目标姓名板标记")
+            self.log(f"🔙 {why}：{what} → 后退一步（「{k['back']}」按住 {ms:.0f}ms）让姓名板露出来，再右键点（不盲转）")
+            self._ctx("面向：后退一步让姓名板露出来")
+            self.inp.press(k["back"], hold_ms=ms, delay=False)
+            self.fast_until = max(self.fast_until, now + 1.0)
+            return "backed"
+        self.np_n += 1
+        self.np_act_t = now
+        self._warn("npnomk", f"[面向] {why}：看不到目标姓名板标记（已经后退过）→ 不盲转，照常放技能", 5)
+        return None
 
     def _enter_combat(self, now):
         self.state = State.COMBAT
@@ -2977,6 +3032,19 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         if self.face_last is not None and now - self.face_last >= quiet and self.last_facing_err_t <= self.face_last + 0.2:
             self.dlog(f"[面向] 转身后 {now - self.face_last:.1f} 秒没有新的面向错误 → 面向正常，计数清零")
             self._face_reset()          # v8.25：点击模式也清零（以前只有原地模式清，转身次数会越攒越多）
+        if self._np_on():
+            # v8.62：姓名板优先调朝向，战斗中不左右盲转
+            if self.np_n and now - max(self.np_act_t, self.last_facing_err_t) >= quiet \
+                    and (self.rec_last is None or now - self.rec_last >= quiet):
+                self.dlog(f"[面向] 右键姓名板/后退后 {quiet:.0f} 秒没有新的问题 → 这一轮清零")
+                self._np_reset()
+            if self._click_facing_now(obs, now):
+                if self._np_face(obs, now, "面向错误") in ("clicked", "backed", "gaveup"):
+                    return
+            elif self.cfg.get("recover", {}).get("enabled", True):
+                if self._recover(obs, now):
+                    return
+            return self._rotate(obs)
         fr = None
         if obs.err_facing or obs.error == "facing" or self.last_facing_err_t > max(self.combat_start - 1.0, self.fclick_t + 0.2) \
                 and now - self.last_facing_err_t < 1.5:
@@ -3026,6 +3094,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             if self.rec_fails:
                 self.log("补救成功，打出伤害了")
             self.rec_fails, self.rec_last = 0, None
+            if self._np_on():
+                self._np_reset()
         why = self._fight_problem(obs, now)
         if why is None or why == "面向错误":
             return False            # v8.20：面向错误只用右键姓名板/转身，不按互动键
@@ -3036,6 +3106,20 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         if self.rec_fails >= int(r.get("max_fails", 3)):
             return self._give_up(now, why)
         step = self.rec_fails
+        if self._np_on():
+            # v8.62：距离太远 / 打不出伤害 → 右键点当前目标姓名板（近战内也点）；看不到 → 后退一步；绝不左右盲转、不按互动键
+            r = self._np_face(obs, now, why, recover=True)
+            if r == "wait":
+                return False
+            if r == "gaveup":
+                return True
+            self.log(f"🔧 {why} → 补救第 {step + 1} 次：" + {"clicked": "右键点当前目标姓名板（自动朝向）",
+                                                          "backed": "后退一步让姓名板露出来"}.get(r, "看不到目标姓名板 → 按开怪键（不盲转）"))
+            if r is None and k.get("attack"):
+                self.inp.press(k["attack"])
+            self.last_engage = now
+            self.rec_last = self.clock()
+            return True
         # v8.22：战斗中补救绝不按互动键（以前按 g，身边有尸体就会去剥皮）→ 右键点目标姓名板标记
         has_mk = self._has_marker(obs)
         what = "右键点目标姓名板" if has_mk else ("右键点姓名板" if obs.selected_plate is not None else None)
