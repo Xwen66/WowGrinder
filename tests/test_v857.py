@@ -252,7 +252,7 @@ class Strings(unittest.TestCase):
             self.assertIn(f'"{k}"', app)
         self.assertTrue(re.search(r"v8\.57.*无视", _rd(os.path.join(ROOT, "README_中文.md"))))
         self.assertIn("v8.57", _rd(os.path.join(ROOT, "bot", "runner.py")))
-        self.assertIn("## Version: 0.16.0", _rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc")))
+        self.assertRegex(_rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc")), r"## Version: 0\.(1[6-9]|[2-9]\d)\.0")
         self.assertIn("C_Timer.After(0.3, SellBatch)", _rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.lua")))
 
 

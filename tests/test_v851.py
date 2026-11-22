@@ -154,7 +154,7 @@ class WalkStatic(Search):
 class Strings(unittest.TestCase):
     def test_files(self):
         app = _rd(os.path.join(ROOT, "gui", "app.py"))
-        self.assertTrue(re.search(r"熊德自动打怪 v8\.5[1-9]", app))
+        self.assertTrue(re.search(r"熊德自动打怪 v8\.(5[1-9]|[6-9]\d)", app))
         for k in ("red_walk_static_s", "red_walk_static_px", "red_walk_min_move", "red_walk_bad_s", "red_walk_hits"):
             self.assertIn(f'"{k}"', app)
         rd = _rd(os.path.join(ROOT, "README_中文.md"))

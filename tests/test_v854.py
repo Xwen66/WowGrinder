@@ -161,7 +161,7 @@ class CenterSkip(Base):
 class Strings(unittest.TestCase):
     def test_files(self):
         app = _rd(os.path.join(ROOT, "gui", "app.py"))
-        self.assertRegex(app, r"熊德自动打怪 v8\.5[4-9]")
+        self.assertRegex(app, r"熊德自动打怪 v8\.(5[4-9]|[6-9]\d)")
         for k in ("miss_limit", "miss_backoff_s", "center_skip_fails"):
             self.assertIn(f'"{k}"', app)
         self.assertTrue(re.search(r"v8\.54.*回春", _rd(os.path.join(ROOT, "README_中文.md"))))

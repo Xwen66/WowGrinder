@@ -133,7 +133,7 @@ class HearthUnchanged(RepBase):
 class Strings(unittest.TestCase):
     def test_files(self):
         app = _rd(os.path.join(ROOT, "gui", "app.py"))
-        self.assertRegex(app, r"熊德自动打怪 v8\.5[6-9]")
+        self.assertRegex(app, r"熊德自动打怪 v8\.(5[6-9]|[6-9]\d)")
         self.assertIn('"use_hearth"', app)
         self.assertIn("使用炉石回城", app)
         self.assertTrue(re.search(r"v8\.56.*不用炉石", _rd(os.path.join(ROOT, "README_中文.md"))))

@@ -407,6 +407,7 @@ DEFAULT_CONFIG: dict = {
         "block": 10,                  # 色块边长
         "calib_tolerance": 12,        # 校准灰偏离 128 超过此值 → 提示“伽马/亮度不是默认”（仅提示）
         "stale_s": 3.0,               # 心跳超过 N 秒不变 → 视为插件失联
+        "addons_dir": "",             # v8.60：游戏 AddOns 文件夹（给大地图写 MapData.lua 用；空 = 自动找 _forever_\Interface\AddOns）
     },
     "area": {
         "enabled": False,             # 区域刷怪：脱战且离中心超过半径 → 走回中心（需要 BotStatus v0.5）
@@ -634,6 +635,13 @@ def save_config(cfg: dict, path: str = CONFIG_PATH) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
+    # v8.60：保存的是 WowGrinder 自己的 config.json → 顺便给插件写大地图数据（MapData.lua）；失败不影响保存
+    if os.path.abspath(path) == os.path.abspath(CONFIG_PATH) and not os.environ.get("WOWGRINDER_NO_MAPDATA"):
+        try:
+            from .mapdata import write_map_data
+            write_map_data(cfg)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def region_set(region) -> bool:

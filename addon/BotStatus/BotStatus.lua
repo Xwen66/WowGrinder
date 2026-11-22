@@ -2,6 +2,8 @@
 BotStatus：把角色状态画成屏幕左上角的纯色方块，给 WowGrinder（Python）截图读取。
 兼容《魔兽世界：无限》1.60.1（TOC 16001，带 Midnight 的"机密值/secret values"限制）。
 
+v0.17：给 WowGrinder v8.60：大地图上画 刷怪中心/半径、跑尸路线、修理路线/修理商（MapOverlay.lua + MapData.lua），
+      地图右上角“WG 图层”按钮显示/隐藏（也可以 /wgmap）。色块不变。
 v0.16：给 WowGrinder v8.57“背包满了回去卖垃圾”用：打开商人 → 卖掉**所有**灰色物品
       （每批 12 个，每 0.3 秒一批，商人关了就停；没有 C_Timer 时只卖第一批）。色块不变。
 v0.15：给 WowGrinder v8.55“炉石回城修理”用：
@@ -1116,7 +1118,7 @@ local function ApplyNameplateDistance(verbose)
   npDist = best and math.floor(best + 0.5) or nil
   npOK = npDist ~= nil
   if verbose then
-    print(string.format("|cff40ff40BotStatus v0.16|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
+    print(string.format("|cff40ff40BotStatus v0.17|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
       tostring(npDist or "读不到"), tostring(before or "?")))
   end
 end

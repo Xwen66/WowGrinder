@@ -91,7 +91,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.59")
+        self.title("WowGrinder 熊德自动打怪 v8.60")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -408,6 +408,9 @@ class App(tk.Tk):
         self._field(af, 2, "块边长(px)", "addon", "block", "int")
         self._field(af, 2, "校准灰容差", "addon", "calib_tolerance", "int", col=3)
         self._field(af, 3, "心跳超时(秒)", "addon", "stale_s", "float")
+        self._field(af, 4, "插件文件夹(大地图用)", "addon", "addons_dir", "str",
+                    tip="v8.60：游戏的 Interface\\AddOns 文件夹；空 = 自动找 C:\\Program Files (x86)\\World of Warcraft\\_forever_。"
+                        "保存/录点时把中心、跑尸路线、修理路线写进 BotStatus\\MapData.lua，游戏里 /reload 后在大地图上显示")
         f = ttk.Frame(outer)
         f.pack(fill="both", expand=True, pady=(6, 0))
         ttk.Label(f, text="备用截图识别区域，格式：左,上,宽,高（屏幕像素）。0,0,0,0 = 未设置。姓名板搜索区必须设置。",
@@ -1526,6 +1529,13 @@ class App(tk.Tk):
             return messagebox.showerror("设置有误", str(e))
         self._start_hotkeys()
         self.log("设置已保存")
+        try:
+            from bot.mapdata import status_msg
+            m = status_msg()
+            if m:
+                self.log(m)
+        except Exception:  # noqa: BLE001
+            pass
 
     def reload(self):
         self.cfg = load_config()

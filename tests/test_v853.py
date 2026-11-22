@@ -170,7 +170,7 @@ class Track(TabBase):
 class Strings(unittest.TestCase):
     def test_files(self):
         app = _rd(os.path.join(ROOT, "gui", "app.py"))
-        self.assertRegex(app, r"熊德自动打怪 v8\.5[3-9]")
+        self.assertRegex(app, r"熊德自动打怪 v8\.(5[3-9]|[6-9]\d)")
         for k in ("red_turn_static_deg", "red_turn_static_px", "red_turn_hits"):
             self.assertIn(f'"{k}"', app)
         rd = _rd(os.path.join(ROOT, "README_中文.md"))
