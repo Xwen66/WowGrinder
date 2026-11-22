@@ -46,7 +46,6 @@ DEFAULT_CONFIG: dict = {
         "hotkey_add_repair": "f5",  # v8.55 把当前位置添加为下一个修理路线点（#1 = 炉石落点）
         "hotkey_repair_vendor": "f4",  # v8.55 站在修理商旁边按：当前位置加到修理路线，并标成“修理商”
         "hearth": "",             # v8.55 炉石键：游戏里做宏 /cancelform 换行 /use 炉石，放到动作条，键位填这里
-        "vendor_target": "",      # v8.55 选修理商键：游戏里做宏 /tar 修理商名字，键位填这里（之后按互动键打开商人）
         # v8.15 猎豹形态（“战斗形态”选 猎豹 时才用；留空 = 不按）
         "cat_form": "",           # 猎豹形态键（必填）
         "cat_builder": "",        # 攒连击点技能：爪击（必填）
@@ -524,7 +523,7 @@ REJUV_KEYS = {"heal": ["post_rejuv_enabled", "post_rejuv_below_pct", "rejuv_cost
               "keys": ["rejuvenation"]}       # v8.54：战后回春术删掉了
 
 REMOVED_KEYS = {
-    "keys": ["cat_opener"],
+    "keys": ["cat_opener", "vendor_target"],   # v8.59：选修理商键删掉了（到修理商点只按 清目标 + 互动）
     "move": ["combat_interact_interval_s"],
     "heal": ["gcd_ms"],
     "safety": ["turn_enabled", "turn_every_tabs", "turn_hold_ms", "max_no_target_s", "max_idle_s"],
@@ -668,9 +667,9 @@ def key_conflicts(cfg: dict) -> list[str]:
              "target_attacker": "选攻击我的怪", "clear_target": "清除目标", "cat_form": "猎豹形态", "cat_builder": "爪击",
              "cat_rake": "斜掠", "cat_finisher": "终结技", "cat_prowl": "潜行", "cat_tigers_fury": "猛虎之怒",
              "back": "后退", "forward": "前进", "strafe": "平移", "jump": "跳跃", "target": "选怪", "cancel_form": "取消变形",
-             "interact": "与目标互动", "hearth": "炉石", "vendor_target": "选修理商", "spirit": "释放灵魂/复活"}
+             "interact": "与目标互动", "hearth": "炉石", "spirit": "释放灵魂/复活"}
     out = []
-    for mine in ("interact", "spirit", "hearth", "vendor_target"):
+    for mine in ("interact", "spirit", "hearth"):
         v = norm_key(k.get(mine) or "")
         if not v:
             continue

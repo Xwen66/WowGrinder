@@ -134,6 +134,8 @@ class BotRunner:
              f"停着 Tab 连续 {ts0.get('miss_limit', 3)} 次没选到 → 暂停 {ts0.get('miss_backoff_s', 30)} 秒；"
              f"中心连续 {ar0.get('center_skip_fails', 2)} 次去不了 → 先跳过（v8.55：到了任何一个中心就全部恢复）")
         rp0 = cfg.get("repair", {})
+        dlog(f"v8.59 到修理商点：清目标「{cfg['keys'].get('clear_target') or '-'}」+ 互动「{cfg['keys'].get('interact') or '-'}」，"
+             f"没开就原地转 {rp0.get('vendor_turn_deg', 45)}° 再试，最多 {rp0.get('vendor_tries', 8)} 个方向（不再用选修理商键）")
         dlog(f"v8.58 修理/卖垃圾失败不停止 → 截图，回去刷怪，{float(rp0.get('fail_retry_s', 600)) / 60:.0f} 分钟后再去修")
         dlog(f"v8.57 路上无视怪物={'开' if rp0.get('ignore_combat', True) else '关'}（血量 ≤ {rp0.get('fight_back_hp_pct', 40)}% 才还手），"
              f"背包满回去卖={'开' if rp0.get('bag_trip', True) else '关'}，路上猎豹={'开' if rp0.get('cat_travel', True) else '关'}")
@@ -141,7 +143,7 @@ class BotRunner:
         dlog(f"v8.55 炉石回城修理={'开' if rp0.get('enabled', True) else '关'}：耐久 ≤ {rp0.get('durability_pct', 20)}% → "
              f"炉石「{cfg['keys'].get('hearth') or '-'}」→ 修理路线 {len(rp0.get('route') or [])} 个点"
              f"（修理商 = #{int(rp0.get('vendor_i', -1)) + 1 if int(rp0.get('vendor_i', -1)) >= 0 else '没标'}）"
-             f" 选修理商「{cfg['keys'].get('vendor_target') or '-'}」；修不了时耐久 ≤ {rp0.get('stop_pct', 5)}% 停止"
+             f"；修不了时耐久 ≤ {rp0.get('stop_pct', 5)}% 提醒"
              f"（{str(cfg['keys'].get('hotkey_add_repair') or '-').upper()}=加点 "
              f"{str(cfg['keys'].get('hotkey_repair_vendor') or '-').upper()}=标修理商，要插件 v0.15）")
         ea0 = cfg.get("eat", {})

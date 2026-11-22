@@ -2,7 +2,7 @@
 
 耐久 ≤ durability_pct（脱战、在找怪/回中心时，连续 confirm_s 秒）→ 按炉石键（游戏里宏：/cancelform 换行 /use 炉石）
 → 看到读条 → 读完换地图/坐标跳了 = 到了 → 按录好的修理路线走到修理商（路线 #1 = 炉石落点，F4 标的点 = 修理商）
-→ 按“选修理商键”（宏 /tar 商人名字）+ 互动键 → 插件 v0.15 打开商人自动全部修理（顺便卖灰色物品）
+→ （v8.59）按清除目标键 + 互动键（没开就原地转 45° 再试，最多 8 个方向）→ 插件 v0.15 打开商人自动全部修理（顺便卖灰色物品）
 → 耐久回到 repaired_pct → 按 Esc 关商人 → 照路线后半段（修理商 → 刷怪区）走回去（换地图时朝最后一段的方向一直走，直到进入下一张图）
 → 走到最近的同地图中心，接着打怪。
 
@@ -16,7 +16,7 @@ import math
 from .navigation import angle_diff, bearing_to, distance
 
 REPAIR_DEFAULTS = {
-    "enabled": True,          # 炉石回城修理（还要录好路线、填好炉石键/选修理商键才会用）
+    "enabled": True,          # 炉石回城修理（还要录好路线、填好互动键，炉石模式还要炉石键）
     "use_hearth": True,       # v8.56：关 = 不用炉石，先走到最近的中心，再把回程路线倒着走到修理商，修完照回程路线走回来
     "durability_pct": 20,     # 最低耐久 ≤ 这个 → 回城修理
     "stop_pct": 5,            # 炉石冷却/没设置好修不了时：耐久 ≤ 这个就停止（0 = 不停）
@@ -31,8 +31,9 @@ REPAIR_DEFAULTS = {
     "cross_timeout_s": 20.0,  # 走到地图边上，最多再往前走多久进入下一张图
     "cast_timeout_s": 25.0,   # 炉石读条（10 秒）最多等多久
     "load_timeout_s": 90.0,   # 读完到落地（读图）最多等多久
-    "vendor_tries": 3,        # 选修理商 + 互动 最多按几次
-    "vendor_wait_s": 5.0,     # 按完等多久商人窗口没开就再按
+    "vendor_tries": 8,        # v8.59：清目标 + 互动 最多试几个方向（每次没开就原地转一下）
+    "vendor_wait_s": 3.0,     # 按完等多久商人窗口没开就转身再按
+    "vendor_turn_deg": 45.0,  # v8.59：每次转多少度（左右来回扫：0, +45, -45, +90, -90, +135, -135, 180）
     "repaired_pct": 90,       # 耐久回到这个 = 修好了
     "repair_wait_s": 8.0,     # 商人窗口开了最多等多久修好
     "max_attempts": 3,        # 炉石被打断（被怪打）最多重试几次，再不行就停止
@@ -96,8 +97,6 @@ class RepairMixin:
         out = []
         if c.get("use_hearth", True) and not (k.get("hearth") or "").strip():
             out.append("炉石键")
-        if not (k.get("vendor_target") or "").strip():
-            out.append("选修理商键")
         if not (k.get("interact") or "").strip():
             out.append("互动键")
         route = list(c.get("route") or [])
@@ -367,7 +366,7 @@ class RepairMixin:
             if ph == "to_vendor":
                 self._stop_walk()
                 rp.update(phase="vendor", t=now, press_t=-1e9, tries=0)
-                self.log("🔧 到修理商这里了 → 选修理商 + 互动")
+                self.log("🔧 到修理商这里了 → 清目标 + 互动（没开就原地转身再试）")
                 return True
             return self._rp_finish(obs, now)
         if ph == "vendor":
@@ -469,21 +468,45 @@ class RepairMixin:
             rp.update(phase="repairing", t=now)
             self.log("🔧 商人窗口开了 → 插件自动全部修理（顺便卖灰色物品）")
             return True
-        if now - rp["press_t"] >= float(c["vendor_wait_s"]):
-            if rp["tries"] >= int(c["vendor_tries"]):
-                return self._rp_fail(f"按了 {rp['tries']} 次选修理商 + 互动，商人窗口都没开"
-                                     "（选修理商的宏 /tar 名字 对吗？路线最后一个点离修理商够近吗？）")
+        if now - rp["press_t"] >= float(c.get("vendor_wait_s", 3.0)):
+            n = max(1, int(c.get("vendor_tries", 8)))
+            if rp["tries"] >= n:
+                return self._rp_fail(f"转了 {rp['tries']} 个方向按清目标 + 互动，商人窗口都没开"
+                                     "（修理商那个点离修理师够近吗？要站到能直接对话的地方按 F4）")
+            k = self.cfg["keys"]
+            if rp["tries"] >= 1:
+                off = self._rp_vendor_offset(rp["tries"], float(c.get("vendor_turn_deg", 45.0)))
+                delta = math.radians(off - rp.get("turn_off", 0.0))
+                if abs(delta) > 1e-6:
+                    self._ctx("回城修理：转身再试")
+                    self._turn(delta)
+                    rp["turn_off"] = off
+                    self.dlog(f"[修理] 商人窗口没开 → 原地转到 {off:+.0f}°")
             rp["tries"] += 1
             rp["press_t"] = now
-            k = self.cfg["keys"]
             if rp["tries"] >= 2 and obs.form in ("cat", "bear") and self._cancel_distinct():
                 self.log(f"🔧 商人窗口没开，现在是{obs.form}形态 → 先取消变形再试")
                 self.inp.press(k["cancel_form"])
-            self._ctx("回城修理：选修理商 + 互动")
-            self.inp.press(k["vendor_target"])
+            self._ctx("回城修理：清目标 + 互动")
+            ct = str(k.get("clear_target") or "").strip()
+            if ct:
+                self.inp.press(ct)
+                self.inp.sleep(0.15)
+            else:
+                self._warn("rpnoclear", "⚠️ “清除目标键”没填 → 修理时直接按互动键（可能一直对着选错的人）", 600)
             self.inp.press(k["interact"])
-            self.log(f"🔧 选修理商「{k['vendor_target']}」+ 互动「{k['interact']}」（第 {rp['tries']} 次）")
+            self.log(f"🔧 清目标「{ct or '-'}」+ 互动「{k['interact']}」（第 {rp['tries']}/{n} 次，"
+                     f"朝向 {rp.get('turn_off', 0.0):+.0f}°）")
         return True
+
+    @staticmethod
+    def _rp_vendor_offset(i, step) -> float:
+        """第 i 次（0 开始）的朝向偏移：0, +s, -s, +2s, -2s, +3s, -3s, 180, 再往后循环。"""
+        seq = [0.0]
+        for m in range(1, 4):
+            seq += [m * step, -m * step]
+        seq.append(180.0)
+        return seq[i % len(seq)]
 
     def _rp_repairing(self, obs, now, c, rp) -> bool:
         dur = getattr(obs, "durability", None)
@@ -500,7 +523,7 @@ class RepairMixin:
             return True
         if getattr(obs, "merchant_open", False) and not getattr(obs, "merchant_repair", False) and now - rp["t"] > 1.5 \
                 and why != "bag":
-            return self._rp_fail("这个商人不能修理（选修理商的宏选错人了？）")
+            return self._rp_fail("这个商人不能修理（互动到别的商人了？F4 点要贴着修理师）")
         if now - rp["t"] > float(c["repair_wait_s"]):
             return self._rp_fail(f"商人窗口开了 {float(c['repair_wait_s']):.0f} 秒，耐久还是 "
                                  + (f"{dur:.0f}%" if dur is not None else "读不到") + "（钱不够？）")

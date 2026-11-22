@@ -54,7 +54,7 @@ class Walk(RepBase):
         self.to_vendor()
         self.inp.history.clear()
         self.go((63.0, 75.0), mp=TOWN)
-        self.assertEqual(self.keys()[:2], ["n", "`"])
+        self.assertEqual(self.keys()[:2], [self.k["clear_target"], "`"])
         self.go((63.0, 75.0), mp=TOWN, merchant=True)
         self.go((63.0, 75.0), mp=TOWN, merchant=True, dur=100)
         self.assertIn("esc", self.keys())

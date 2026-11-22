@@ -92,7 +92,7 @@ class HearthFail(RepBase):
         self.start_cast()
         self.land()
         self.walk_to_vendor()
-        for _ in range(40):
+        for _ in range(80):
             self.t(ro(pos=(63.0, 75.0), mp=TOWN, form="caster"))
         self.assertFalse(self.g.stopped)
         self.assertIsNone(self.g.rp)
@@ -108,7 +108,7 @@ class HearthFail(RepBase):
         self.assertNotIn("h", self.keys())
 
     def test_low_5pct_no_stop(self):
-        self.k["vendor_target"] = ""
+        self.k["interact"] = ""
         for _ in range(10):
             self.t(ro(dur=3))
         self.assertFalse(self.g.stopped)

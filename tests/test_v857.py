@@ -149,7 +149,7 @@ class BagTrip(WalkBase):
         self.assertIsNone(self.g.rp)
 
     def test_missing_config_no_stop(self):
-        self.k["vendor_target"] = ""
+        self.k["interact"] = ""
         self.g.bag_full = True
         for _ in range(10):
             self.go((42.0, 61.0), dur=80)

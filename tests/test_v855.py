@@ -145,8 +145,8 @@ class Config(unittest.TestCase):
         r, k = DEFAULT_CONFIG["repair"], DEFAULT_CONFIG["keys"]
         self.assertTrue(r["enabled"])
         self.assertEqual((r["durability_pct"], r["stop_pct"], r["vendor_i"], r["route"]), (20, 5, -1, []))
-        self.assertEqual((k["hearth"], k["vendor_target"], k["hotkey_add_repair"], k["hotkey_repair_vendor"]),
-                         ("", "", "f5", "f4"))
+        self.assertEqual((k["hearth"], k["hotkey_add_repair"], k["hotkey_repair_vendor"]), ("", "f5", "f4"))
+        self.assertNotIn("vendor_target", k)                # v8.59 删了
 
     def test_key_conflicts(self):
         cfg = copy.deepcopy(DEFAULT_CONFIG)
@@ -201,7 +201,7 @@ class Flow(RepBase):
         self.walk_to_vendor()
         self.inp.history.clear()
         self.t(ro(pos=(63.0, 75.0), mp=TOWN, form="caster"))
-        self.assertEqual(self.keys()[:2], ["n", "`"])        # 选修理商 + 互动
+        self.assertEqual(self.keys()[:2], [self.k["clear_target"], "`"])   # v8.59：清目标 + 互动
         self.t(ro(pos=(63.0, 75.0), mp=TOWN, form="caster", merchant=True))
         self.assertEqual(self.g.rp["phase"], "repairing")
         self.inp.history.clear()
@@ -269,12 +269,12 @@ class Guards(RepBase):
         self.assertTrue(any("炉石还在冷却" in m for m in self.logs))
 
     def test_not_configured(self):
-        self.k["vendor_target"] = ""
+        self.k["interact"] = ""
         for _ in range(10):
             self.t(ro())
         self.assertIsNone(self.g.rp)
-        self.assertTrue(any("没设置好" in m and "选修理商键" in m for m in self.logs))
-        self.k["vendor_target"] = "n"
+        self.assertTrue(any("没设置好" in m and "互动键" in m for m in self.logs))
+        self.k["interact"] = "`"
         self.cfg["repair"]["vendor_i"] = 5                   # 修理商后面没有回程点
         self.assertIn("修理商之后走回刷怪区的路线点", self.g._rp_missing())
 
@@ -313,11 +313,11 @@ class Guards(RepBase):
         self.start_cast()
         self.land()
         self.walk_to_vendor()
-        for _ in range(40):
+        for _ in range(80):
             self.t(ro(pos=(63.0, 75.0), mp=TOWN, form="caster"))
         self.assertFalse(self.g.stopped)                     # v8.58：失败不停止
         self.assertTrue(any("商人窗口都没开" in m for m in self.logs))
-        self.assertEqual(self.keys().count("n"), 3)
+        self.assertEqual(self.keys().count("`"), 8)          # v8.59：8 个方向
 
     def test_not_repaired_stops(self):
         self.start_cast()
@@ -411,7 +411,7 @@ class Strings(unittest.TestCase):
     def test_files(self):
         app = _rd(os.path.join(ROOT, "gui", "app.py"))
         self.assertRegex(app, r"熊德自动打怪 v8\.(5[5-9]|[6-9]\d)")
-        for k in ("hearth", "vendor_target", "hotkey_add_repair", "hotkey_repair_vendor", "durability_pct", "stop_pct"):
+        for k in ("hearth", "hotkey_add_repair", "hotkey_repair_vendor", "durability_pct", "stop_pct"):
             self.assertIn(f'"{k}"', app)
         self.assertIn("v8.55", _rd(os.path.join(ROOT, "README_中文.md")))
         self.assertIn("v8.55", _rd(os.path.join(ROOT, "bot", "runner.py")))
