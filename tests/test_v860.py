@@ -291,7 +291,7 @@ class Overlay(unittest.TestCase):
 class Strings(unittest.TestCase):
     def test_toc(self):
         toc = _rd(os.path.join(ADDON, "BotStatus.toc"))
-        self.assertIn("## Version: 0.17.0", toc)
+        self.assertRegex(toc, r"## Version: 0\.(1[7-9]|[2-9]\d)\.\d")
         self.assertIn("## SavedVariables: BotStatusMapDB", toc)
         files = [l.strip() for l in toc.splitlines() if l.strip() and not l.startswith("#")]
         self.assertEqual(files, ["MapData.lua", "BotStatus.lua", "MapOverlay.lua"])

@@ -1,5 +1,5 @@
 --[[
-BotStatus v0.17：在大地图（世界地图）上画 WowGrinder 的
+BotStatus v0.17 + v0.18（v0.18：修“什么都不显示”—— 图层抬到地图所有框架上面；加 /wgmap 诊断、自动重画）：在大地图（世界地图）上画 WowGrinder 的
   · 刷怪中心（黄点 + 编号）和刷怪半径（黄圈）
   · 跑尸路线（蓝点 + 连线，从墓地开始）
   · 修理路线（绿点 + 连线）和修理商点（紫色大点“修”）
@@ -110,20 +110,53 @@ local function path(pts, dst, c, th, size, vendor)
   return n
 end
 
-function M.Refresh()
-  if not M.frame then return end
+local function raiseAbove(canvas)
+  -- v0.18：地图底图/图钉也是画布的子框架，层级可能比我们高 → 每次画之前把图层抬到所有子框架上面
+  -- （固定 +500 会被区域底图盖住 —— v0.17 什么都看不见的原因；ForeverMaps 也是这样处理的：比画布上最高的子/孙框架高 1 级）
+  local top = canvas:GetFrameLevel() or 0
+  for _, k in ipairs({ canvas:GetChildren() }) do
+    if k ~= M.frame and k.GetFrameLevel then
+      top = math.max(top, k:GetFrameLevel() or 0)
+      if k.GetChildren then
+        for _, g in ipairs({ k:GetChildren() }) do
+          if g.GetFrameLevel then top = math.max(top, g:GetFrameLevel() or 0) end
+        end
+      end
+    end
+  end
+  M.topLevel = top
+  local want = math.min(top + 1, 10000)
+  if (M.frame:GetFrameLevel() or 0) ~= want then M.frame:SetFrameLevel(want) end
+end
+M.RaiseAbove = function() if M.frame and M.canvas then pcall(raiseAbove, M.canvas) end end
+
+-- 画布会按缩放比例缩小/放大，线宽、点大小按比例换算，屏幕上看起来一样粗
+local function canvasScale()
+  local sc = WorldMapFrame and WorldMapFrame.GetCanvasScale and WorldMapFrame:GetCanvasScale()
+  return (sc and sc > 0) and sc or 1
+end
+
+local function draw()
+  if not M.frame then M.why = "图层还没初始化"; return end
   for i = 1, M.nt do M.tex[i]:Hide() end
   for i = 1, M.nl do M.lines[i]:Hide() end
   for i = 1, M.nf do M.fonts[i]:Hide() end
   M.nt, M.nl, M.nf, M.drawn = 0, 0, 0, 0
   local D = BotStatusMapData
-  if hidden() or type(D) ~= "table" or not WorldMapFrame or not WorldMapFrame:IsShown() then return end
+  if hidden() then M.why = "图层已关（点按钮或 /wgmap on 打开）"; return end
+  if type(D) ~= "table" then M.why = "没有地图数据（MapData.lua 是空的）"; return end
+  if not WorldMapFrame or not WorldMapFrame:IsShown() then M.why = "大地图没打开"; return end
   local dst = WorldMapFrame:GetMapID()
-  if not dst then return end
+  M.mapID = dst
+  if not dst then M.why = "取不到当前地图编号"; return end
   W, H = M.frame:GetWidth(), M.frame:GetHeight()
-  if not W or W <= 0 or not H or H <= 0 then return end
-  local th = math.max(1.5, W / 600)
-  local size = math.max(4, W / 160)
+  M.size = { W or 0, H or 0 }
+  if not W or W <= 0 or not H or H <= 0 then M.why = "画布大小是 0（稍后自动重画）"; return end
+  if M.canvas then pcall(raiseAbove, M.canvas) end
+  local sc = canvasScale()
+  M.scale = sc
+  local th = 2 / sc
+  local size = 7 / sc
   local drawn = 0
   -- 刷怪中心 + 半径圈（圈是 地图坐标 下的圆，和 WowGrinder 算距离的方法一样）
   local r = tonumber(D.radius) or 0
@@ -148,8 +181,50 @@ function M.Refresh()
   drawn = drawn + path(D.corpse, dst, COL.corpse, th, size)
   drawn = drawn + path(D.repair, dst, COL.repair, th, size, tonumber(D.vendor) or 0)
   M.drawn = drawn
+  M.why = drawn > 0 and "" or ("这张地图（" .. tostring(dst) .. "）上没有能画的点")
 end
 
+function M.Refresh()
+  local ok, err = pcall(draw)
+  if not ok then
+    M.err = tostring(err)
+    if not M.errShown then
+      M.errShown = true
+      print("|cffff4040BotStatus 大地图图层出错：|r" .. M.err .. "（输入 /wgmap 看详情，截图发给 WowGrinder）")
+    end
+  end
+  local okk, key = pcall(function()
+    return tostring(WorldMapFrame:GetMapID()) .. ":" .. tostring(M.frame and M.frame:GetWidth()) .. ":" .. tostring(canvasScale())
+  end)
+  M.lastKey = okk and key or nil
+end
+
+local function count(t) return type(t) == "table" and #t or 0 end
+
+function M.Status()
+  local D = BotStatusMapData
+  local p = function(s) print("|cff40ff40[WG 图层]|r " .. s) end
+  p("插件 v0.18；图层：" .. (hidden() and "关" or "开") .. "；初始化：" .. (M.frame and "成功" or ("没有（" .. tostring(M.setupErr or "找不到大地图") .. "）")))
+  if type(D) == "table" then
+    p(string.format("数据：%s 写入；中心 %d 个（半径 %s）、跑尸 %d 点、修理 %d 点、修理商 #%s",
+      tostring(D.written), count(D.centers), tostring(D.radius), count(D.corpse), count(D.repair), tostring(D.vendor)))
+    local c = D.centers and D.centers[1]
+    if c then p(string.format("第 1 个中心：%.2f, %.2f，地图 %s", c[1], c[2], tostring(c[3]))) end
+  else
+    p("数据：没有（在 WowGrinder 里点“保存设置”，再 /reload）")
+  end
+  local shown = WorldMapFrame and WorldMapFrame:IsShown()
+  local mid = WorldMapFrame and WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
+  local best = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+  p(string.format("大地图：%s；显示的地图 %s；你所在的地图 %s", shown and "开着" or "关着", tostring(mid), tostring(best)))
+  if M.frame then
+    p(string.format("画布 %.0f x %.0f，缩放 %.2f，图层层级 %s（地图最高 %s）；上次画了 %d 个点（线 %d 条）%s",
+      M.frame:GetWidth() or 0, M.frame:GetHeight() or 0, M.scale or 0, tostring(M.frame:GetFrameLevel()), tostring(M.topLevel),
+      M.drawn or 0, M.nl or 0, (M.why and M.why ~= "") and ("；" .. M.why) or ""))
+  end
+  if M.err then p("|cffff4040出错：|r" .. M.err) end
+  if not shown then p("先按 M 打开大地图再输入 /wgmap，结果更准") end
+end
 local function updateButton()
   if not M.button then return end
   M.button:SetText(hidden() and "WG 图层：关" or "WG 图层：开")
@@ -169,8 +244,9 @@ function M.Setup()
   if not canvas then return false end
   local f = CreateFrame("Frame", "BotStatusMapOverlayFrame", canvas)
   f:SetAllPoints(canvas)
-  f:SetFrameLevel(math.min((canvas:GetFrameLevel() or 0) + 500, 9000))   -- 盖在地图图钉上面，但仍在地图框里（会被地图裁剪）
+  f:SetFrameLevel(math.min((canvas:GetFrameLevel() or 0) + 1, 10000))   -- 每次画之前再抬到地图所有框架上面
   M.frame = f
+  M.canvas = canvas
   local b = CreateFrame("Button", "BotStatusMapToggle", WorldMapFrame, "UIPanelButtonTemplate")
   b:SetSize(110, 22)
   local anchor = WorldMapFrame.ScrollContainer or WorldMapFrame
@@ -198,6 +274,19 @@ function M.Setup()
   WorldMapFrame:HookScript("OnShow", M.Refresh)
   if WorldMapFrame.OnMapChanged then hooksecurefunc(WorldMapFrame, "OnMapChanged", M.Refresh) end
   f:SetScript("OnSizeChanged", M.Refresh)
+  -- v0.18：保险 —— 地图开着时每 0.5 秒看一下地图/画布大小变了没有，变了就重画（防止钩子没触发）
+  local acc = 0
+  f:SetScript("OnUpdate", function(_, el)
+    acc = acc + (el or 0)
+    if acc < 0.5 then return end
+    acc = 0
+    if not WorldMapFrame:IsShown() then return end
+    M.RaiseAbove()                                  -- 地图后来新建的框架也压不住我们
+    local okk, key = pcall(function()
+      return tostring(WorldMapFrame:GetMapID()) .. ":" .. tostring(f:GetWidth()) .. ":" .. tostring(canvasScale())
+    end)
+    if not okk or key ~= M.lastKey or (M.drawn == 0 and not hidden()) then M.Refresh() end
+  end)
   return true
 end
 
@@ -208,8 +297,32 @@ ev:SetScript("OnEvent", function(_, event, name)
   if event == "ADDON_LOADED" and name == "BotStatus" then
     BotStatusMapDB = BotStatusMapDB or {}
   end
-  if not M.frame then pcall(M.Setup) end
+  if not M.frame then
+    local ok, err = pcall(M.Setup)
+    if not ok then
+      M.setupErr = tostring(err)
+      if not M.setupShown then
+        M.setupShown = true
+        print("|cffff4040BotStatus 大地图图层初始化失败：|r" .. M.setupErr)
+      end
+    end
+  end
+  if event == "PLAYER_LOGIN" then
+    local D = BotStatusMapData
+    print(string.format("|cff40ff40BotStatus 大地图图层|r：%s（输入 /wgmap 看状态，/wgmap on|off 开关）",
+      type(D) == "table" and string.format("中心 %d 个、跑尸 %d 点、修理 %d 点（%s）", count(D.centers), count(D.corpse), count(D.repair), tostring(D.written))
+      or "没有数据，在 WowGrinder 里点“保存设置”再 /reload"))
+  end
 end)
 
 SLASH_BOTSTATUSMAP1 = "/wgmap"
-SlashCmdList["BOTSTATUSMAP"] = function() M.Toggle() end
+SlashCmdList["BOTSTATUSMAP"] = function(msg)
+  msg = string.lower(tostring(msg or ""):gsub("^%s+", ""):gsub("%s+$", ""))
+  if msg == "on" or msg == "off" or msg == "toggle" then
+    BotStatusMapDB = BotStatusMapDB or {}
+    if msg == "toggle" then BotStatusMapDB.hidden = not BotStatusMapDB.hidden else BotStatusMapDB.hidden = (msg == "off") end
+    updateButton()
+  end
+  M.Refresh()
+  M.Status()
+end
