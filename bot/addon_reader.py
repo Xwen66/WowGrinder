@@ -40,6 +40,9 @@ FIELDS = {
 # v0.12 二进制 C 行：尸体坐标 / 复活还要等几秒 / 姓名板显示距离；C 行最后一块青 = v0.12 签名
 FIELDS_C = {"corpse_x": (2, 0, 16), "corpse_y": (2, 7, 16), "res_delay": (2, 14, 7), "np_dist": (2, 18, 7)}
 SIG_C_BLOCK = (2, 24)
+# v0.15 二进制 D 行：最低耐久% / 炉石冷却分钟；D 行最后一块黄 = v0.15 签名
+FIELDS_D = {"durability": (3, 0, 7), "hearth_cd": (3, 4, 7)}
+SIG_D_BLOCK = (3, 24)
 SIG_C13_BLOCK = (2, 23)      # v0.13：C 行第 23 块洋红 = 块 36-39 目标信息有效
 VERSION_BLOCK = (1, 23)
 BUFF = {"green": "yes", "yellow": "low", "black": "no", "blue": "unlearned", "magenta": "unknown"}
@@ -101,6 +104,13 @@ class AddonState:
     eatinfo: bool = False          # 插件 v0.14（块 40/41 有效）
     well_fed: str | None = None    # 充分进食 buff：yes/low/no/unknown；None = 旧插件
     eating: bool | None = None     # 正在进食；None = 读不到
+    # v0.15 炉石回城修理
+    repinfo: bool = False          # 插件 v0.15（块 42/43 + D 行有效）
+    durability: float | None = None  # 身上装备最低耐久 %；None = 读不到
+    hearth_cd: int | None = None   # 炉石冷却还剩几分钟（0 = 能用）；None = 没炉石/读不到
+    has_hearth: bool = False
+    merchant_open: bool = False
+    merchant_repair: bool = False
     marker_center: bool = False    # v0.10：标记在目标姓名板正中间（块 28 白），可以右键点它
     marker_state: str = "unknown"  # shown=标记挂在目标姓名板上 / no_plate / error / none=没目标 / unknown=旧插件
     facing_count: int | None = None  # 面向错误计数 0-7（循环）；None = 旧插件
@@ -204,7 +214,7 @@ class AddonReader:
         return float(((g >= 128) & (r < 128) & (b < 128)).sum())
 
     def field(self, frame, name):
-        row, start, nbits = FIELDS[name] if name in FIELDS else FIELDS_C[name]
+        row, start, nbits = FIELDS[name] if name in FIELDS else (FIELDS_C[name] if name in FIELDS_C else FIELDS_D[name])
         bits: list[int] = []
         for j in range(n_blocks(nbits)):
             bits += to_bits(self._bin_block(frame, row, start + j))
@@ -350,6 +360,16 @@ class AddonReader:
                     st.well_fed = {"green": "yes", "yellow": "low", "black": "no"}.get(c(40), "unknown")
                     eb = to_bits(self._block(frame, 41))
                     st.eating = bool(eb[0]) if eb[1] else None
+                    if frame.shape[1] >= x0 + 44 * bs and frame.shape[0] >= y0 + BIN_TOP + 4 * bs \
+                            and to_bits(self._block(frame, 42))[2] == 1 and to_bits(self._block(frame, 43))[2] == 1 \
+                            and classify(self._bin_block(frame, *SIG_D_BLOCK)) == "yellow":
+                        st.repinfo = True                                  # v0.15
+                        mb, hb2 = to_bits(self._block(frame, 42)), to_bits(self._block(frame, 43))
+                        st.merchant_open, st.merchant_repair = bool(mb[0]), bool(mb[1])
+                        st.has_hearth = bool(hb2[0])
+                        dv = self.field(frame, "durability")
+                        st.durability = float(dv) if (hb2[1] and dv is not None and dv <= 100) else None
+                        st.hearth_cd = self.field(frame, "hearth_cd") if st.has_hearth else None
         sd = self.field(frame, "since_damage")
         st.since_damage = None if sd is None else (math.inf if sd >= 127 else float(sd))
 
@@ -395,7 +415,8 @@ def apply_gamma(img, gamma: float = 1.2, brightness: int = 0):
 
 def paint_test_frame(state: dict, size=(200, 400), block=10, beat=0, pos=None, facing=None, map_id=None,
                      bin_pct=None, version=7, since_damage=None, marker="black", facing_count=0, v08=False,
-                     combo=None, energy_lvl=None, marker_center=False, enemy=None, death=None, tinfo=None, eat=None):
+                     combo=None, energy_lvl=None, marker_center=False, enemy=None, death=None, tinfo=None, eat=None,
+                     rep=None):
     """按 v0.7 编码表画一帧（BGR）。
 
     state: {块号: 颜色名 或 ('pct', 数值)（画到 R 通道，旧式）, "bars": (血, 目标, 怒气, 法力)}
@@ -404,6 +425,8 @@ def paint_test_frame(state: dict, size=(200, 400), block=10, beat=0, pos=None, f
     bin_pct: {"hp": 数值|None, "target_hp":..., "rage":..., "mana":...}（二进制百分比，None = 无效）
     """
     img = np.zeros((size[0], size[1], 3), np.uint8)
+    if rep is not None and eat is None:
+        eat = {}
     if eat is not None and tinfo is None:
         tinfo = {}
     if tinfo is not None and death is None:
@@ -503,4 +526,15 @@ def paint_test_frame(state: dict, size=(200, 400), block=10, beat=0, pos=None, f
         # v0.14：eat = {"wf": "green"/"yellow"/"black"/"magenta", "eating": bool, "readable": bool}
         put(40 * block, 0, PALETTE[eat.get("wf", "black")])
         put(41 * block, 0, tuple(255 * b for b in (1 if eat.get("eating") else 0, 1 if eat.get("readable", True) else 0, 1)))
+    if rep is not None:
+        # v0.15：rep = {"dur": 数值|None, "cd": 分钟|None, "hearth": bool, "merchant": bool, "can_repair": bool}
+        dur, hs = rep.get("dur"), rep.get("hearth", True)
+        put(42 * block, 0, tuple(255 * b for b in (1 if rep.get("merchant") else 0, 1 if rep.get("can_repair") else 0, 1)))
+        put(43 * block, 0, tuple(255 * b for b in (1 if hs else 0, 0 if dur is None else 1, 1)))
+        vals = {"durability": dur, "hearth_cd": rep.get("cd", 0) if hs else None}
+        for name, (row, start, nbits) in FIELDS_D.items():
+            bits = encode_bits(vals.get(name), nbits)
+            for j in range(len(bits) // 3):
+                put((start + j) * block, BIN_TOP + row * block, tuple(255 * b for b in bits[3 * j:3 * j + 3]))
+        put(SIG_D_BLOCK[1] * block, BIN_TOP + SIG_D_BLOCK[0] * block, PALETTE["yellow"])
     return img

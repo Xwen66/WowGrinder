@@ -43,6 +43,10 @@ DEFAULT_CONFIG: dict = {
         "hotkey_set_home": "f8",    # v8.17 把当前位置设为范围中心（自动保存）；v8.23 有多中心时：清空列表，当前位置 = 中心 #1
         "hotkey_add_center": "f7",  # v8.23 把当前位置添加为下一个中心（多中心巡逻 1→2→3→2→1 来回走）
         "hotkey_add_route": "f6",   # v8.39 把当前位置添加为下一个跑尸路线点（从复活点开始按顺序记）
+        "hotkey_add_repair": "f5",  # v8.55 把当前位置添加为下一个修理路线点（#1 = 炉石落点）
+        "hotkey_repair_vendor": "f4",  # v8.55 站在修理商旁边按：当前位置加到修理路线，并标成“修理商”
+        "hearth": "",             # v8.55 炉石键：游戏里做宏 /cancelform 换行 /use 炉石，放到动作条，键位填这里
+        "vendor_target": "",      # v8.55 选修理商键：游戏里做宏 /tar 修理商名字，键位填这里（之后按互动键打开商人）
         # v8.15 猎豹形态（“战斗形态”选 猎豹 时才用；留空 = 不按）
         "cat_form": "",           # 猎豹形态键（必填）
         "cat_builder": "",        # 攒连击点技能：爪击（必填）
@@ -255,6 +259,19 @@ DEFAULT_CONFIG: dict = {
         "retry_min": 30.0,        # 没食物后多少分钟再试
         "max_restarts": 1,        # 吃到一半被打断重按几次
     },
+    "repair": {
+        # v8.55 炉石回城修理（要插件 v0.15）：耐久 ≤ durability_pct → 炉石 → 照路线走到修理商 → 自动全部修理 → 照路线走回刷怪区
+        "enabled": True,
+        "durability_pct": 20,     # 最低耐久 ≤ 这个 → 回城修理
+        "stop_pct": 5,            # 炉石冷却/没设置好修不了时：耐久 ≤ 这个就停止（0 = 不停）
+        "route": [],              # 修理路线 [x, y, 地图]（F5 记点，F4 标修理商）
+        "vendor_i": -1,           # 路线里哪个点是修理商（0 开始；-1 = 还没标）
+        "arrive_dist": 0.25,      # 离路线点多近算到（地图坐标）
+        "start_max_dist": 3.0,    # 炉石落地后离路线最近的点超过这个 → 位置不对 → 停止
+        "stuck_max": 8,           # 同一段路卡住超过这么多次 → 停止
+        "seg_timeout_s": 300.0,   # 一段路最多走多久（秒）
+        "repaired_pct": 90,       # 耐久回到这个 = 修好了
+    },
     "meta": {
         "migrations": [],         # 已经做过的一次性配置升级（别手动改）
     },
@@ -398,7 +415,7 @@ DEFAULT_CONFIG: dict = {
         "stuck_s": 3.0,               # 按着前进 N 秒位置没变 → 跳/平移脱困，2 次无效 → 停止
         "move_eps": 0.03,             # 位置变化小于此值视为没动
         "home_on_start": True,        # v8.17 开始打怪时把当前位置记为中心（关掉 = 用上面保存的中心坐标）
-        "center_skip_fails": 2,       # v8.54：同一个中心连续这么多次去不了（卡住/超时，中间没到过）→ 这次运行跳过它（0 = 不跳；至少留 1 个）
+        "center_skip_fails": 2,       # v8.54：同一个中心连续这么多次去不了（卡住/超时）→ 先跳过它，v8.55：到了任何一个中心就全部恢复（0 = 不跳；至少留 1 个）
         "auto_switch_center": True,   # v8.46：离当前中心超出半径、但在另一个中心半径里 → 直接换成那个中心，不走回去
         "leash_ratio": 1.3,           # v8.17 点击模式：脱战追怪时离中心超过 半径×此值 → 放弃这只怪，走回中心
         "centers": [],                # v8.23 多中心巡逻 [[x, y, 地图], ...]；有 2 个以上：转一圈没找到怪 → 直线走去下一个，循环
@@ -643,9 +660,9 @@ def key_conflicts(cfg: dict) -> list[str]:
              "target_attacker": "选攻击我的怪", "clear_target": "清除目标", "cat_form": "猎豹形态", "cat_builder": "爪击",
              "cat_rake": "斜掠", "cat_finisher": "终结技", "cat_prowl": "潜行", "cat_tigers_fury": "猛虎之怒",
              "back": "后退", "forward": "前进", "strafe": "平移", "jump": "跳跃", "target": "选怪", "cancel_form": "取消变形",
-             "interact": "与目标互动", "spirit": "释放灵魂/复活"}
+             "interact": "与目标互动", "hearth": "炉石", "vendor_target": "选修理商", "spirit": "释放灵魂/复活"}
     out = []
-    for mine in ("interact", "spirit"):
+    for mine in ("interact", "spirit", "hearth", "vendor_target"):
         v = norm_key(k.get(mine) or "")
         if not v:
             continue

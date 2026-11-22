@@ -91,7 +91,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.54")
+        self.title("WowGrinder 熊德自动打怪 v8.55")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -121,6 +121,7 @@ class App(tk.Tk):
         self._tab_nameplates(nb)
         self._tab_area(nb)
         self._tab_corpse(nb)
+        self._tab_repair(nb)
         self._tab_recover(nb)
         self._tab_safety(nb)
         self._place_advanced()
@@ -332,6 +333,10 @@ class App(tk.Tk):
             ("hotkey_set_home", "设范围中心热键", "默认 f8：把当前位置设为范围中心（有多中心时：清空列表，当前位置 = 中心 #1）"),
             ("hotkey_add_center", "添加中心热键", "默认 f7：把当前位置添加为下一个中心（多中心巡逻 1→2→3→2→1 来回走）"),
             ("hotkey_add_route", "添加跑尸路线点热键", "默认 f6：把当前位置添加为下一个跑尸路线点（从复活点开始按顺序记，见“跑尸”页）"),
+            ("hotkey_add_repair", "添加修理路线点热键", "v8.55 默认 f5：把当前位置添加为下一个修理路线点（见“修理”页）"),
+            ("hotkey_repair_vendor", "标记修理商热键", "v8.55 默认 f4：站在修理商旁边按，当前位置加到修理路线并标成修理商"),
+            ("hearth", "炉石键", "v8.55 回城修理：游戏里做宏 /cancelform 换行 /use 炉石，填它的键；空 = 不回城"),
+            ("vendor_target", "选修理商键", "v8.55 回城修理：游戏里做宏 /tar 修理商名字，填它的键"),
             ("cat_form", "猎豹形态键", "战斗形态=猎豹 时必填"),
             ("cat_builder", "爪击键（攒连击点）", "猎豹必填"),
             ("cat_rake", "斜掠键", "可选：每只怪开头放一次"),
@@ -760,7 +765,7 @@ class App(tk.Tk):
             ("area", "home_on_start", "开始时把当前位置当中心", "bool", "关掉 = 用下面保存的中心坐标"),
             ("area", "leash_ratio", "追怪最远(半径×)", "float", "点击模式：还没开打就追出 半径×此值 → 放弃这只，走回中心"),
             ("area", "auto_switch_center", "就近切换中心（v8.46）", "bool", "出了当前中心的范围、但在另一个中心范围里 → 直接换过去，不走回去"),
-            ("area", "center_skip_fails", "中心连续几次去不了就跳过", "int", "v8.54 默认 2（中间到过一次就重新数）；0 = 不跳；至少留 1 个；重开 WowGrinder 恢复"),
+            ("area", "center_skip_fails", "中心连续几次去不了就跳过", "int", "v8.54 默认 2；0 = 不跳；至少留 1 个；v8.55：到了任何一个中心，跳过的中心全部恢复、次数清零"),
             ("scan", "spin_home", "转一圈没找到怪就回中心", "bool", "v8.19：找怪转视角累计转满下面的度数 → 走回范围中心"),
             ("scan", "spin_deg", "转多少度算一圈", "float", "默认 360"),
             ("scan", "spin_near_ratio", "已在中心附近(半径×)", "float", "在这个距离内不走，等一会儿再找（默认 0.2）"),
@@ -877,6 +882,110 @@ class App(tk.Tk):
         g = self.runner.grinder if (self.runner and self.runner.running) else None
         if g is not None:
             g.set_route(self.cfg["corpse"].get("route") or [])
+
+    # ================================================================ v8.55 修理
+    def _tab_repair(self, nb):
+        f = self._page(nb, "修理")
+        ttk.Label(f, foreground="#666", wraplength=820, justify="left",
+                  text="v8.55 炉石回城修理（需要插件 BotStatus v0.15，游戏里 /reload 一次）：脱战时最低耐久 ≤ 下面的线 → "
+                       "按“炉石键” → 落地后照修理路线走到修理商 → 按“选修理商键” + “与目标互动键”打开商人 → "
+                       "插件自动全部修理（顺便卖灰色物品）→ 照路线后半段走回刷怪区 → 走回最近的中心接着打。\n"
+                       "任何一步不对（按了没反应、卡住太多次、超时、位置/地图不对、修不了）→ 停止并截图，不会乱走。"
+                       "炉石在冷却/没设置好 → 接着打，耐久 ≤ “停止线”才停止。\n"
+                       "游戏里要做 2 个宏放到动作条：炉石键 = /cancelform 换行 /use 炉石；选修理商键 = /tar 修理商名字"
+                       "（键位填到“基本设置”页的“炉石键”“选修理商键”）。"
+                       ).grid(row=0, column=0, columnspan=4, sticky="w")
+        rows = [
+            ("repair", "enabled", "炉石回城修理", "bool", "还要录好路线、填好两个键才会用"),
+            ("repair", "durability_pct", "耐久低于多少回城(%)", "int", "默认 20：身上装备最低的那件 ≤ 这个"),
+            ("repair", "stop_pct", "修不了时停止线(%)", "int", "默认 5：炉石冷却/没设置好时，耐久 ≤ 这个就停止；0 = 不停"),
+            ("repair", "repaired_pct", "修好的标准(%)", "int", "默认 90：商人窗口开了以后耐久回到这个算修好"),
+            ("repair", "arrive_dist", "离路线点多近算到(地图坐标)", "float", "默认 0.25（城里地图小，太大会抄近路撞墙）"),
+            ("repair", "start_max_dist", "落地离路线最远(地图坐标)", "float", "默认 3.0：炉石落地后离路线最近的点超过这个 → 停止（炉石绑在别处？）"),
+            ("repair", "stuck_max", "一段路最多卡住几次", "int", "默认 8：超过 → 停止并截图"),
+            ("repair", "seg_timeout_s", "一段路最多走多久(秒)", "float", "默认 300"),
+        ]
+        for i, (sec, key, label, kind, tip) in enumerate(rows, start=1):
+            self._field(f, i, label, sec, key, kind, tip=tip)
+        rf = ttk.LabelFrame(f, text="修理路线（v8.55）", padding=6)
+        rf.grid(row=len(rows) + 2, column=0, columnspan=4, sticky="we", pady=8)
+        k = self.cfg["keys"]
+        hk, hv = str(k.get("hotkey_add_repair") or "f5").upper(), str(k.get("hotkey_repair_vendor") or "f4").upper()
+        ttk.Label(rf, foreground="#666", wraplength=780, justify="left",
+                  text=f"录法：先点“清空”。在刷怪区自己用炉石回城 → 落地马上按 {hk}（#1 = 炉石落点）→ 走去修理商，"
+                       f"每到拐弯、门口、楼梯前后按 {hk} → 站到修理商旁边（能对话的距离）按 {hv}（标成修理商）→ "
+                       f"走回刷怪区，拐弯处按 {hk}；换地图（出城/进新区域）前后各按一次 {hk} → 走到某个中心附近再按一次 {hk} 结束。"
+                       "WowGrinder 开着（运行中/暂停/没开始都行）、游戏在前台就能记。").pack(anchor="w")
+        self.rroute_lb = tk.Listbox(rf, height=8, width=64)
+        self.rroute_lb.pack(side="left", padx=4, pady=4)
+        rb = ttk.Frame(rf)
+        rb.pack(side="left", padx=4)
+        ttk.Button(rb, text="删除选中", command=self._rroute_delete).pack(fill="x", pady=2)
+        ttk.Button(rb, text="清空", command=self._rroute_clear).pack(fill="x", pady=2)
+        ttk.Button(rb, text=f"添加当前位置（{hk}）", command=lambda: self._hotkey_area("rroute")).pack(fill="x", pady=2)
+        ttk.Button(rb, text=f"添加为修理商（{hv}）", command=lambda: self._hotkey_area("rvendor")).pack(fill="x", pady=2)
+        ttk.Button(rb, text="把选中的点设为修理商", command=self._rroute_set_vendor).pack(fill="x", pady=2)
+        self._refresh_rroute()
+
+    def _refresh_rroute(self):
+        lb = getattr(self, "rroute_lb", None)
+        if lb is None:
+            return
+        lb.delete(0, "end")
+        rc = self.cfg.get("repair") or {}
+        vi = int(rc.get("vendor_i", -1))
+        for i, c in enumerate(rc.get("route") or []):
+            tag = "   （炉石落点）" if i == 0 else ""
+            if i == vi:
+                tag = "   🔧 修理商"
+            elif vi >= 0 and i > vi:
+                tag = "   （回程）"
+            lb.insert("end", f"#{i + 1}   {float(c[0]):.2f}, {float(c[1]):.2f}   地图 {c[2] if len(c) > 2 else 0}{tag}")
+
+    def _save_repair_route(self, route, vendor_i, msg=None):
+        """把修理路线写进 config.json（只改这两项）。"""
+        route = [[round(float(c[0]), 2), round(float(c[1]), 2), int(c[2] if len(c) > 2 else 0)] for c in route]
+        vendor_i = int(vendor_i) if 0 <= int(vendor_i) < len(route) else -1
+        try:
+            cfg = load_config()
+            cfg["repair"]["route"], cfg["repair"]["vendor_i"] = route, vendor_i
+            save_config(cfg)
+        except Exception as e:  # noqa: BLE001
+            return self.log(f"🔧 保存修理路线失败：{e}")
+        self.cfg["repair"]["route"], self.cfg["repair"]["vendor_i"] = route, vendor_i
+        self._refresh_rroute()
+        if msg:
+            self.log(msg)
+
+    def _push_rroute(self):
+        g = self.runner.grinder if (self.runner and self.runner.running) else None
+        if g is not None:
+            g.set_repair_route(self.cfg["repair"].get("route") or [], self.cfg["repair"].get("vendor_i", -1))
+
+    def _rroute_delete(self):
+        sel = list(self.rroute_lb.curselection())
+        if not sel:
+            return
+        rs = list(self.cfg["repair"].get("route") or [])
+        vi = int(self.cfg["repair"].get("vendor_i", -1))
+        i = sel[0]
+        c = rs.pop(i)
+        vi = -1 if i == vi else (vi - 1 if i < vi else vi)
+        self._save_repair_route(rs, vi, f"🔧 已删除修理路线点 #{i + 1}（{c[0]}, {c[1]}），还剩 {len(rs)} 个")
+        self._push_rroute()
+
+    def _rroute_clear(self):
+        if not (self.cfg["repair"].get("route")) or not messagebox.askyesno("清空", "清空修理路线？"):
+            return
+        self._save_repair_route([], -1, "🔧 已清空修理路线（不会回城修理，直到重新录好）")
+        self._push_rroute()
+
+    def _rroute_set_vendor(self):
+        sel = list(self.rroute_lb.curselection())
+        if not sel:
+            return
+        self._save_repair_route(list(self.cfg["repair"].get("route") or []), sel[0], f"🔧 修理商 = 修理路线点 #{sel[0] + 1}")
+        self._push_rroute()
 
     def _route_delete(self):
         sel = list(self.route_lb.curselection())
@@ -1265,13 +1374,16 @@ class App(tk.Tk):
         self.runner = BotRunner(copy.deepcopy(cfg), self.log, self.status,
                                 on_home=lambda x, y, m: self.msgq.put(("call", lambda: self._save_home(x, y, m))),
                                 on_centers=lambda cs: self.msgq.put(("call", lambda: self._save_centers(cs))),
-                                on_route=lambda rs: self.msgq.put(("call", lambda: self._save_route(rs))))
+                                on_route=lambda rs: self.msgq.put(("call", lambda: self._save_route(rs))),
+                                on_repair_route=lambda rs, vi: self.msgq.put(("call", lambda: self._save_repair_route(rs, vi))))
         self.runner.start()
         self.log(f"已启动。{cfg['keys']['hotkey_stop'].upper()}=紧急停止，{cfg['keys']['hotkey_toggle'].upper()}=暂停/继续，"
                  f"{str(cfg['keys'].get('hotkey_area_check') or '-').upper()}=检查范围，"
                  f"{str(cfg['keys'].get('hotkey_set_home') or '-').upper()}=设当前位置为中心，"
                  f"{str(cfg['keys'].get('hotkey_add_center') or '-').upper()}=添加中心（多中心 {len(cfg['area'].get('centers') or [])} 个），"
-                 f"{str(cfg['keys'].get('hotkey_add_route') or '-').upper()}=添加跑尸路线点（{len(cfg['corpse'].get('route') or [])} 个）")
+                 f"{str(cfg['keys'].get('hotkey_add_route') or '-').upper()}=添加跑尸路线点（{len(cfg['corpse'].get('route') or [])} 个），"
+                 f"{str(cfg['keys'].get('hotkey_add_repair') or '-').upper()}=添加修理路线点 "
+                 f"{str(cfg['keys'].get('hotkey_repair_vendor') or '-').upper()}=标记修理商（{len(cfg['repair'].get('route') or [])} 个点）")
 
     def stop_bot(self):
         if self.runner and self.runner.running:
@@ -1316,10 +1428,18 @@ class App(tk.Tk):
             return self.log("📍 读不到 BotStatus 插件（游戏窗口要在前台、插件色块没被挡住）：" + st.reason)
         if st.pos is not None:
             self._last_pos_read = (time.monotonic(), st.pos, st.map_id)
-        elif cmd in ("add", "home", "route"):
-            return self.log({"add": "🚩 添加中心", "home": "📍 设中心", "route": "🗺️ 添加跑尸路线点"}[cmd]
+        elif cmd in ("add", "home", "route", "rroute", "rvendor"):
+            return self.log({"add": "🚩 添加中心", "home": "📍 设中心", "route": "🗺️ 添加跑尸路线点",
+                             "rroute": "🔧 添加修理路线点", "rvendor": "🔧 标记修理商"}[cmd]
                             + f"失败：读不到坐标 —— {why}")
         a = cfg["area"]
+        if cmd in ("rroute", "rvendor"):                    # v8.55 修理路线点 / 修理商
+            from bot.repair import repair_route_msg
+            rs = [list(c) for c in (cfg["repair"].get("route") or [])]
+            p = [round(st.pos[0], 2), round(st.pos[1], 2), int(st.map_id or 0)]
+            rs.append(p)
+            vi = len(rs) - 1 if cmd == "rvendor" else int(cfg["repair"].get("vendor_i", -1))
+            return self._save_repair_route(rs, vi, repair_route_msg(rs, vi, cmd == "rvendor"))
         if cmd == "route":                                  # v8.39 跑尸路线点
             rs = [list(c) for c in (cfg["corpse"].get("route") or [])]
             p = [round(st.pos[0], 2), round(st.pos[1], 2), int(st.map_id or 0)]
@@ -1377,7 +1497,9 @@ class App(tk.Tk):
             binds = {k.get("hotkey_area_check") or "": lambda: self._hotkey_area("check"),
                      k.get("hotkey_set_home") or "": lambda: self._hotkey_area("home"),
                      k.get("hotkey_add_center") or "": lambda: self._hotkey_area("add"),
-                     k.get("hotkey_add_route") or "": lambda: self._hotkey_area("route")}
+                     k.get("hotkey_add_route") or "": lambda: self._hotkey_area("route"),
+                     k.get("hotkey_add_repair") or "": lambda: self._hotkey_area("rroute"),
+                     k.get("hotkey_repair_vendor") or "": lambda: self._hotkey_area("rvendor")}
             binds.pop("", None)
             binds.update({k["hotkey_stop"]: self._hotkey_stop, k["hotkey_toggle"]: self._hotkey_toggle})
             self.hotkeys = HotkeyListener(binds)

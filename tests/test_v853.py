@@ -57,10 +57,8 @@ class Defaults(unittest.TestCase):
 class Reverted(unittest.TestCase):
     def test_addon_back_to_v014(self):
         lua = _rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.lua"))
-        self.assertIn("local NUM_BLOCKS = 42", lua)
-        self.assertNotIn("v0.15", lua)
-        self.assertNotIn("binD", lua)
-        self.assertIn("## Version: 0.14.0", _rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc")))
+        self.assertNotIn("ui_rects", lua)                  # v8.52 的界面框没了（v0.15 起插件是 v8.55 修理用的新版本）
+        self.assertNotIn("UIRect", lua)
 
     def test_bot_side_removed(self):
         det = Detector(copy.deepcopy(DEFAULT_CONFIG))

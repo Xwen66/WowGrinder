@@ -2,6 +2,11 @@
 BotStatus：把角色状态画成屏幕左上角的纯色方块，给 WowGrinder（Python）截图读取。
 兼容《魔兽世界：无限》1.60.1（TOC 16001，带 Midnight 的"机密值/secret values"限制）。
 
+v0.15：给 WowGrinder v8.55“炉石回城修理”用：
+      块 42 = R=商人窗口开着，G=这个商人能修理，B=1（v0.15 签名）；
+      块 43 = R=背包里有炉石，G=耐久读得到，B=1；
+      二进制 D 行 y=60..69：最低耐久%(4 块) 炉石冷却还剩几分钟(4 块，0=能用，无效=没炉石/读不到)，D 行最后一块黄 = v0.15 签名。
+      打开能修理的商人 → 自动“全部修理”（钱够才修）+ 卖掉灰色物品（每次最多 12 个），聊天框打印结果。
 v0.14：给 WowGrinder v8.49“自动进食”用：
       块 40 = 充分进食（Well Fed）buff（绿=有，黄=不到 60 秒，黑=没有，洋红=读不到）；
       块 41 = R=正在进食（身上有“进食/Food”光环），G=光环读得到，B=1（v0.14 签名）。
@@ -75,6 +80,10 @@ local CFG = {
                      26260, 26472, 28616, 29008, 29073 },
              names = { "进食", "Food", "进食饮水", "Food & Drink" }, notsub = { "充分", "Well Fed" } },
   buffLowSec = 60,     -- 剩余不到 N 秒算“快没了”（黄）
+  -- v0.15 修理
+  autoRepair = true,   -- 打开能修理的商人 → 全部修理（钱够才修）
+  sellJunk = true,     -- 打开商人 → 卖掉灰色物品（每次最多 12 个）
+  hearthID = 6948,     -- 炉石
 }
 
 -------------------------------------------------------------------- 工具
@@ -102,10 +111,10 @@ local frame = CreateFrame("Frame", "BotStatusFrame", nil) -- 不挂 UIParent：A
 frame:SetFrameStrata("TOOLTIP")
 frame:SetFrameLevel(9999)
 
-local NUM_BLOCKS = 42   -- v0.13：36-39 = 目标 玩家/精英/等级差；v0.14：40 充分进食，41 正在进食
+local NUM_BLOCKS = 44   -- v0.13：36-39 = 目标 玩家/精英/等级差；v0.14：40 充分进食，41 正在进食；v0.15：42 商人，43 炉石/耐久
 local NUM_BARS = 4
-local BIN_A, BIN_B, BIN_C = 25, 25, 25
-local blocks, bars, binA, binB, binC = {}, {}, {}, {}, {}
+local BIN_A, BIN_B, BIN_C, BIN_D = 25, 25, 25, 25
+local blocks, bars, binA, binB, binC, binD = {}, {}, {}, {}, {}, {}
 
 local function PixelScale()
   local _, h = GetPhysicalScreenSize()
@@ -116,7 +125,7 @@ end
 local function Layout()
   frame:SetScale(PixelScale())
   local B = CFG.block
-  frame:SetSize(math.max(BIN_B * B, NUM_BLOCKS * B, CFG.barWidth), CFG.binTop + 3 * B)
+  frame:SetSize(math.max(BIN_B * B, NUM_BLOCKS * B, CFG.barWidth), CFG.binTop + 4 * B)
   -- 无父框体：锚在屏幕左上角，偏移单位 = 本框体单位 = 物理像素
   frame:ClearAllPoints()
   frame:SetPoint("TOPLEFT", nil, "TOPLEFT", CFG.x, -CFG.y)
@@ -138,6 +147,10 @@ local function Layout()
     binC[i]:ClearAllPoints(); binC[i]:SetSize(B, B)
     binC[i]:SetPoint("TOPLEFT", frame, "TOPLEFT", i * B, -(CFG.binTop + 2 * B))
   end
+  for i = 0, BIN_D - 1 do
+    binD[i]:ClearAllPoints(); binD[i]:SetSize(B, B)
+    binD[i]:SetPoint("TOPLEFT", frame, "TOPLEFT", i * B, -(CFG.binTop + 3 * B))
+  end
   for i = 1, NUM_BARS do
     local b = bars[i]
     b:ClearAllPoints()
@@ -156,6 +169,7 @@ for i = 0, NUM_BLOCKS - 1 do blocks[i] = NewTex() end
 for i = 0, BIN_A - 1 do binA[i] = NewTex() end
 for i = 0, BIN_B - 1 do binB[i] = NewTex() end
 for i = 0, BIN_C - 1 do binC[i] = NewTex() end
+for i = 0, BIN_D - 1 do binD[i] = NewTex() end
 for i = 1, NUM_BARS do
   local b = CreateFrame("StatusBar", nil, frame)
   b:SetStatusBarTexture("Interface\\Buttons\\WHITE8X8")
@@ -417,6 +431,96 @@ end
 local function PlayerXY(m) return C_Map.GetPlayerMapPosition(m, "player") end
 local function CorpseXY(m) return C_DeathInfo.GetCorpseMapPosition(m) end
 
+-------------------------------------------------------------------- v0.15 修理：耐久 / 炉石冷却 / 商人
+local merchantOpen, merchantRepair = false, false
+local durPct, durAge = nil, 99
+local function ReadDurability()
+  local lo, any = nil, false
+  for slot = 1, 19 do
+    pcall(function()
+      local cur, max = GetInventoryItemDurability(slot)
+      cur, max = plain(cur), plain(max)
+      if cur and max and max > 0 then
+        any = true
+        local p = cur / max * 100
+        if not lo or p < lo then lo = p end
+      end
+    end)
+  end
+  if lo then return lo end
+  if any then return nil end
+  return _G.GetInventoryItemDurability and 100 or nil   -- 没有带耐久的装备 = 不用修
+end
+local function HearthInfo()
+  local count, left = nil, nil
+  pcall(function()
+    local n = plain(GetItemCount(CFG.hearthID))
+    count = n or 0
+  end)
+  if not count or count <= 0 then return false, nil end
+  pcall(function()
+    local getcd = (_G.C_Container and C_Container.GetItemCooldown) or _G.GetItemCooldown
+    local st, dur = getcd(CFG.hearthID)
+    st, dur = plain(st), plain(dur)
+    if st and dur then
+      local rem = (st > 0 and dur > 0) and (st + dur - GetTime()) or 0
+      left = rem > 0 and math.min(126, math.ceil(rem / 60)) or 0
+    end
+  end)
+  return true, left
+end
+local function BagNumSlots(bag)
+  if _G.C_Container and C_Container.GetContainerNumSlots then return C_Container.GetContainerNumSlots(bag) end
+  return GetContainerNumSlots(bag)
+end
+local function BagItem(bag, slot)   -- 返回 品质, 能不能卖
+  if _G.C_Container and C_Container.GetContainerItemInfo then
+    local info = C_Container.GetContainerItemInfo(bag, slot)
+    if not info then return nil end
+    return info.quality, not info.hasNoValue
+  end
+  local _, _, _, quality, _, _, _, _, noValue = GetContainerItemInfo(bag, slot)
+  return quality, not noValue
+end
+local function UseBagItem(bag, slot)
+  if _G.C_Container and C_Container.UseContainerItem then return C_Container.UseContainerItem(bag, slot) end
+  return UseContainerItem(bag, slot)
+end
+local function OnMerchantShow()
+  merchantOpen = true
+  merchantRepair = false
+  pcall(function() merchantRepair = CanMerchantRepair() and true or false end)
+  if CFG.sellJunk then
+    local sold = 0
+    pcall(function()
+      for bag = 0, 4 do
+        for slot = 1, (BagNumSlots(bag) or 0) do
+          if sold >= 12 then return end
+          local q, canSell = BagItem(bag, slot)
+          if q == 0 and canSell then UseBagItem(bag, slot); sold = sold + 1 end
+        end
+      end
+    end)
+    if sold > 0 then print(string.format("|cff40ff40BotStatus|r 卖掉了 %d 个灰色物品", sold)) end
+  end
+  if CFG.autoRepair and merchantRepair then
+    pcall(function()
+      local cost, can = GetRepairAllCost()
+      cost = plain(cost) or 0
+      if can and cost > 0 then
+        if GetMoney() >= cost then
+          RepairAllItems()
+          print(string.format("|cff40ff40BotStatus|r 全部修理：%d 金 %d 银 %d 铜",
+                              math.floor(cost / 10000), math.floor(cost / 100) % 100, cost % 100))
+        else
+          print("|cffff4040BotStatus|r 钱不够，修不了装备")
+        end
+      end
+    end)
+  end
+  durAge = 99
+end
+
 local function PaintBinary()
   local mapID, x, y, facing
   pcall(function()
@@ -473,6 +577,15 @@ local function PaintBinary()
   pcall(function() if deadOrGhost then delay = math.min(126, math.max(0, plain(GetCorpseRecoveryDelay()) or 0)) end end)
   PaintBits(binC, 14, delay, 7)
   PaintBits(binC, 18, npDist and math.min(126, npDist), 7)
+  -- v0.15 D 行：最低耐久% / 炉石冷却分钟；块 42 商人 / 43 炉石+耐久
+  durAge = durAge + 1
+  if durAge >= 20 then durAge = 0; durPct = ReadDurability() end   -- 1 秒读一次
+  local hasHearth, hearthLeft = HearthInfo()
+  PaintBits(binD, 0, durPct and math.floor(durPct + 0.5), 7)
+  PaintBits(binD, 4, hasHearth and hearthLeft or nil, 7)
+  binD[24]:SetVertexColor(1, 1, 0, 1)        -- v0.15 签名：D 行最后一块黄
+  Paint(42, { merchantOpen and 1 or 0, merchantRepair and 1 or 0, 1 })
+  Paint(43, { hasHearth and 1 or 0, durPct and 1 or 0, 1 })
   binC[24]:SetVertexColor(0, 1, 1, 1)        -- v0.12 签名：C 行最后一块青
   binC[23]:SetVertexColor(1, 0, 1, 1)        -- v0.13 签名：C 行倒数第二块洋红（块 36-39 目标信息有效）
   Paint(34, { relShown and 1 or 0, resShown and 1 or 0, corpseKnown and 1 or 0 })   -- v0.12 死亡信息
@@ -987,7 +1100,7 @@ local function ApplyNameplateDistance(verbose)
   npDist = best and math.floor(best + 0.5) or nil
   npOK = npDist ~= nil
   if verbose then
-    print(string.format("|cff40ff40BotStatus v0.14|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
+    print(string.format("|cff40ff40BotStatus v0.15|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
       tostring(npDist or "读不到"), tostring(before or "?")))
   end
 end
@@ -1015,7 +1128,8 @@ frame:RegisterEvent("UI_SCALE_CHANGED")
 frame:RegisterEvent("DISPLAY_SIZE_CHANGED")
 for _, ev in ipairs({ "ACTIONBAR_SLOT_CHANGED", "PLAYER_ENTER_COMBAT", "PLAYER_LEAVE_COMBAT",
                       "PLAYER_TARGET_CHANGED", "COMBAT_LOG_EVENT_UNFILTERED",
-                      "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED" }) do
+                      "NAME_PLATE_UNIT_ADDED", "NAME_PLATE_UNIT_REMOVED",
+                      "MERCHANT_SHOW", "MERCHANT_CLOSED", "UPDATE_INVENTORY_DURABILITY" }) do
   pcall(frame.RegisterEvent, frame, ev)   -- 某些事件在无限上可能不让注册
 end
 frame:SetScript("OnEvent", function(_, event, a1, a2)
@@ -1032,6 +1146,13 @@ frame:SetScript("OnEvent", function(_, event, a1, a2)
     autoAttacking = false
   elseif event == "ACTIONBAR_SLOT_CHANGED" then
     FindAttackSlot()
+  elseif event == "MERCHANT_SHOW" then
+    OnMerchantShow()
+  elseif event == "MERCHANT_CLOSED" then
+    merchantOpen, merchantRepair = false, false
+    durAge = 99
+  elseif event == "UPDATE_INVENTORY_DURABILITY" then
+    durAge = 99
   elseif event == "UI_ERROR_MESSAGE" then
     OnUIError(a2)
   elseif event == "UI_SCALE_CHANGED" or event == "DISPLAY_SIZE_CHANGED" then

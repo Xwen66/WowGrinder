@@ -56,6 +56,7 @@ from .tabsearch import TabSearchMixin  # noqa: E402
 from .reconnect import ReconnectMixin  # noqa: E402
 from .efficiency import ManaRestMixin, WalkFarMixin  # noqa: E402
 from .eat import EatMixin  # noqa: E402
+from .repair import RepairMixin, repair_route_msg  # noqa: E402
 
 class State(str, Enum):
     SEARCHING = "寻找目标"
@@ -68,13 +69,15 @@ class State(str, Enum):
     SKINNING = "剥皮中"
     BUFFING = "补 buff 中"
     CORPSE = "跑尸中"
+    REPAIR = "回城修理"
     STOPPED = "已停止"
 
 
 ALIVE_KINDS = ("enemy", "unknown")
 
 
-class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, ManaRestMixin, WalkFarMixin, EatMixin):
+class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, ManaRestMixin, WalkFarMixin, EatMixin,
+              RepairMixin):
     def __init__(self, cfg: dict, inp, log=print, clock=time.monotonic, screen_offset=(0, 0), beep=alarm, dlog=None):
         self.cfg = cfg
         self.inp = inp
@@ -164,6 +167,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.fb_mem = []               # v8.48 背包满只捡钱：捡过的尸体 [(坐标或 None, 时间)]
         self.fb_close = None           # v8.48（v8.49 起不用了：不再按 Esc 关拾取窗口）
         self._eat_init()               # v8.49 自动进食（充分进食 buff）
+        self._rp_init()                # v8.55 炉石回城修理
         self.cr = None                 # v8.31 跑尸状态（None = 没在跑尸）
         self.deaths = 0                # v8.31 这次运行死了几次（不限次数）
         self.rest_end_t = -1e9         # v8.7：回血结束时间（尸体过期从这之后算）
@@ -246,6 +250,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.area_cmds: list[str] = []
         self.route_cmds: list[str] = []  # v8.39：F6 添加跑尸路线点（死了/灵魂状态也处理）
         self.on_route = None             # 回调 (list)：F6 改了跑尸路线 → GUI 保存
+        self.on_repair_route = None      # v8.55 回调 (list, vendor_i)：F5/F4 改了修理路线 → GUI 保存
         self.area_retry: dict[str, float] = {}
         self.on_home = None            # 回调 (x, y, map_id)：F8 设了新中心 → GUI 保存
         # v8.23 多中心巡逻：centers = [[x, y, map_id], ...]，1→2→3→2→1 来回走（v8.33）；home = 当前要去/所在的中心
@@ -1245,6 +1250,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         if self._corpse_tick(obs, now):      # v8.31：死了 → 释放灵魂 → 跑尸 → 复活 → 回血回蓝
             return
         self._bag_watch(obs, now)
+        if self._repair_tick(obs, now):      # v8.55：耐久低 → 炉石回城修理 → 照路线走回来
+            return
         # v8.43：死了不再停止（跑尸开着时上面 _corpse_tick 已经处理；跑尸关着/插件太旧 → 不按键，等活过来再继续）
         dead_now = bool(obs.player_dead)
         if not dead_now and obs.player_hp <= dead_pct and obs.hp_readable:
@@ -1688,6 +1695,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         bag = bag + el
         if self.cr is not None:
             return f"👻 {self.corpse_label()}（第 {self.deaths} 次死亡）" + bag
+        if getattr(self, "rp", None) is not None and not self.rp.get("paused"):
+            return self.repair_label() + bag
         if rem is None:
             return self.state.value + bag
         m, s = divmod(int(rem), 60)
@@ -2492,8 +2501,9 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
 
     # ------------------------------------------------------------ v8.17 范围：中心点 / 热键 / 走回去
     def request_area(self, cmd: str):
-        """热键线程调用：'check' = 检查是否在范围内；'home' = 把当前位置设为中心；'route' = 添加跑尸路线点。下一帧处理。"""
-        if cmd == "route":
+        """热键线程调用：'check' = 检查是否在范围内；'home' = 把当前位置设为中心；'route' = 添加跑尸路线点；
+        v8.55 'rroute' = 添加修理路线点，'rvendor' = 添加修理商点。下一帧处理。"""
+        if cmd in ("route", "rroute", "rvendor"):
             self.route_cmds.append(cmd)
             return
         self.area_cmds.append(cmd)
@@ -2509,10 +2519,13 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                     retry.append(cmd)
                     continue
                 self.area_retry.pop("route", None)
-                self.log("🗺️ 添加跑尸路线点失败：读不到坐标（插件没读到 / 在副本里）")
+                self.log(("🔧 添加修理路线点" if cmd != "route" else "🗺️ 添加跑尸路线点") + "失败：读不到坐标（插件没读到 / 在副本里）")
                 continue
             self.area_retry.pop("route", None)
             p = [round(obs.pos[0], 2), round(obs.pos[1], 2), int(obs.map_id or 0)]
+            if cmd in ("rroute", "rvendor"):
+                self._repair_route_add(p, cmd == "rvendor")
+                continue
             route = self.cfg.setdefault("corpse", {}).setdefault("route", [])
             route.append(p)
             self.log(f"🗺️ 已添加跑尸路线点 #{len(route)}：{p[0]:.2f},{p[1]:.2f}（地图 {p[2]}），共 {len(route)} 个，已保存"
@@ -2523,6 +2536,26 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                 except Exception:  # noqa: BLE001
                     pass
         self.route_cmds[:0] = retry
+
+    def _repair_route_add(self, p, vendor):
+        """v8.55：F5 = 当前位置加到修理路线末尾；F4 = 加到末尾并标成修理商。"""
+        rc = self.cfg.setdefault("repair", {})
+        route = rc.setdefault("route", [])
+        route.append(p)
+        if vendor:
+            rc["vendor_i"] = len(route) - 1
+        self.log(repair_route_msg(route, rc.get("vendor_i", -1), vendor))
+        if self.on_repair_route:
+            try:
+                self.on_repair_route([list(x) for x in route], int(rc.get("vendor_i", -1)))
+            except Exception:  # noqa: BLE001
+                pass
+
+    def set_repair_route(self, route, vendor_i):
+        """GUI 改了修理路线（删除/清空）。"""
+        rc = self.cfg.setdefault("repair", {})
+        rc["route"] = [list(x) for x in route]
+        rc["vendor_i"] = int(vendor_i)
 
     def set_route(self, route):
         """GUI 改了跑尸路线（删除/清空）。正在跑的这次不变，下次死亡起用新路线。"""
@@ -2660,6 +2693,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             self.cdir = 1
         self.ci, self.home = j, self.centers[j]
         self.patrol_skips = 0
+        self._center_reached(j)                           # v8.55：进了中心范围也算到了
         self._spin_reset()
         self.log(f"🚩 已在中心 #{j + 1} 范围内（离它 {d:.2f}，半径 {lim:.2f}）→ 切换，不走回 #{old + 1}{why}")
         return True
@@ -2738,8 +2772,18 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.log(f"🚩 {where}{' ' if why.startswith('的') else '：'}{why}，没有别的中心可去 → 不停止，就地找怪，60 秒内不再走回中心")
         return
 
+    def _center_reached(self, i):
+        """v8.55（t222u）：成功到了任何一个中心 → 所有中心的连续失败清零，跳过的中心全部恢复。"""
+        if not hasattr(self, "center_fails"):
+            self.center_fails, self.center_skip = {}, set()
+        if self.center_skip:
+            back = sorted(self.center_skip)
+            self.log(f"🚩 到了中心 #{i + 1} → 之前跳过的中心 #{', #'.join(str(j + 1) for j in back)} 恢复，失败次数清零")
+        self.center_fails.clear()
+        self.center_skip.clear()
+
     def _center_fail(self, obs, i):
-        """v8.54：去中心 #i 又失败了一次（卡住 3 次/超时）。连续 center_skip_fails 次（中间没到过）→ 这次运行跳过它；
+        """v8.54：去中心 #i 又失败了一次（卡住 3 次/超时）。连续 center_skip_fails 次 → 先跳过它（v8.55：到了任何一个中心就恢复）；
         同地图至少留 1 个没跳过的中心。"""
         need = int(self.cfg.get("area", {}).get("center_skip_fails", 2) or 0)
         if need <= 0 or len(self.centers) < 2 or not (0 <= i < len(self.centers)):
@@ -2757,7 +2801,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             return
         self.center_skip.add(i)
         self.log(f"🚩 中心 #{i + 1} 已经连续 {n} 次去不了（路上卡住/超时）→ 这次运行跳过它，"
-                 f"还剩 {len(left)} 个中心（#{', #'.join(str(j + 1) for j in left)}）；重开 WowGrinder 恢复")
+                 f"还剩 {len(left)} 个中心（#{', #'.join(str(j + 1) for j in left)}）；到了任何一个中心就恢复")
 
     def _return(self, obs, now):
         a, k = self.cfg["area"], self.cfg["keys"]
@@ -2779,8 +2823,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         d = distance(obs.pos, center)
         if d <= float(a["radius"]) * float(a.get("arrive_ratio", 0.5)):
             self._stop_walk()
-            if hasattr(self, "center_fails"):
-                self.center_fails.pop(self.ci, None)      # v8.54：到过了 → 连续失败清零
+            self._center_reached(self.ci)                 # v8.55：到了任何一个中心 → 跳过的中心全部恢复
             if self.travel:
                 self.patrol_skips = 0
                 self.log(f"🚩 到达中心 #{self.ci + 1}/{len(self.centers)}（距离 {d:.2f}）→ 在这里找怪")

@@ -20,9 +20,10 @@ from .window import game_in_foreground
 
 
 class BotRunner:
-    def __init__(self, cfg: dict, log, on_status=None, on_home=None, on_centers=None, on_route=None):
+    def __init__(self, cfg: dict, log, on_status=None, on_home=None, on_centers=None, on_route=None, on_repair_route=None):
         self.cfg = cfg
         self.on_route = on_route
+        self.on_repair_route = on_repair_route
         self.on_home = on_home
         self.on_centers = on_centers
         self.log = log
@@ -87,6 +88,7 @@ class BotRunner:
         g.peek_plates = lambda: det.fresh_plates(cap.grab())   # v8.28：点前再截一张图确认标记还在原位
         g.on_centers = self.on_centers
         g.on_route = self.on_route
+        g.on_repair_route = self.on_repair_route
         dlog(f"配置：模式={cfg['move'].get('mode')} 治疗线={cfg['heal'].get('heal_pct')}% 回血 低于{cfg['heal'].get('rest_below_pct')}%→到{cfg['heal'].get('rest_to_pct')}% "
              f"拾取/剥皮键={cfg['keys'].get('interact') or cfg['keys'].get('loot')} 剥皮={cfg['loot'].get('skin')} "
              f"清除目标={cfg['keys'].get('clear_target')} 点姓名板={cfg.get('stationary', {}).get('plate_click')} "
@@ -130,7 +132,14 @@ class BotRunner:
         hl0, ar0 = cfg.get("heal", {}), cfg.get("area", {})
         dlog(f"v8.54 战后回春术已删掉（只在血量 < {hl0.get('post_ht_below_pct', 60)}% 时生命之触）；"
              f"停着 Tab 连续 {ts0.get('miss_limit', 3)} 次没选到 → 暂停 {ts0.get('miss_backoff_s', 30)} 秒；"
-             f"中心连续 {ar0.get('center_skip_fails', 2)} 次去不了 → 这次运行跳过")
+             f"中心连续 {ar0.get('center_skip_fails', 2)} 次去不了 → 先跳过（v8.55：到了任何一个中心就全部恢复）")
+        rp0 = cfg.get("repair", {})
+        dlog(f"v8.55 炉石回城修理={'开' if rp0.get('enabled', True) else '关'}：耐久 ≤ {rp0.get('durability_pct', 20)}% → "
+             f"炉石「{cfg['keys'].get('hearth') or '-'}」→ 修理路线 {len(rp0.get('route') or [])} 个点"
+             f"（修理商 = #{int(rp0.get('vendor_i', -1)) + 1 if int(rp0.get('vendor_i', -1)) >= 0 else '没标'}）"
+             f" 选修理商「{cfg['keys'].get('vendor_target') or '-'}」；修不了时耐久 ≤ {rp0.get('stop_pct', 5)}% 停止"
+             f"（{str(cfg['keys'].get('hotkey_add_repair') or '-').upper()}=加点 "
+             f"{str(cfg['keys'].get('hotkey_repair_vendor') or '-').upper()}=标修理商，要插件 v0.15）")
         ea0 = cfg.get("eat", {})
         dlog(f"v8.49 自动进食={'开' if ea0.get('enabled', True) else '关'}（进食键「{ea0.get('key') or '没填'}」，"
              f"没“充分进食”buff、附近没怪时变人形吃 ≥ {ea0.get('min_s', 11)} 秒；要插件 v0.14）；背包满只捡钱不再按 Esc")

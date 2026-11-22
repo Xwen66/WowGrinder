@@ -257,6 +257,12 @@ class Observation:
     eatinfo: bool = False           # v8.49 插件 v0.14：充分进食 / 正在进食 读得到
     well_fed: str | None = None     # yes/low/no/unknown
     eating: bool | None = None
+    repinfo: bool = False           # v8.55 插件 v0.15：耐久 / 炉石冷却 / 商人窗口 读得到
+    durability: float | None = None
+    hearth_cd: int | None = None
+    has_hearth: bool = False
+    merchant_open: bool = False
+    merchant_repair: bool = False
     t_player: bool | None = None
     t_elite: bool | None = None
     t_rare: bool = False
@@ -591,6 +597,9 @@ class Detector:
         obs.t_level_diff = getattr(a, "t_level_diff", None)
         obs.eatinfo = getattr(a, "eatinfo", False)                  # v8.49 / 插件 v0.14
         obs.well_fed, obs.eating = getattr(a, "well_fed", None), getattr(a, "eating", None)
+        obs.repinfo = getattr(a, "repinfo", False)                  # v8.55 / 插件 v0.15
+        for k in ("durability", "hearth_cd", "has_hearth", "merchant_open", "merchant_repair"):
+            setattr(obs, k, getattr(a, k, getattr(obs, k)))
 
     def _fill_from_screen(self, obs: Observation, frame):
         cfg = self.cfg
