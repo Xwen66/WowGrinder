@@ -409,7 +409,7 @@ class CenterReset(Base):
 class Strings(unittest.TestCase):
     def test_files(self):
         app = _rd(os.path.join(ROOT, "gui", "app.py"))
-        self.assertRegex(app, r"熊德自动打怪 v8\.5[5-9]")
+        self.assertRegex(app, r"熊德自动打怪 v8\.(5[5-9]|[6-9]\d)")
         for k in ("hearth", "vendor_target", "hotkey_add_repair", "hotkey_repair_vendor", "durability_pct", "stop_pct"):
             self.assertIn(f'"{k}"', app)
         self.assertIn("v8.55", _rd(os.path.join(ROOT, "README_中文.md")))

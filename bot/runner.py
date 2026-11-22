@@ -134,6 +134,7 @@ class BotRunner:
              f"停着 Tab 连续 {ts0.get('miss_limit', 3)} 次没选到 → 暂停 {ts0.get('miss_backoff_s', 30)} 秒；"
              f"中心连续 {ar0.get('center_skip_fails', 2)} 次去不了 → 先跳过（v8.55：到了任何一个中心就全部恢复）")
         rp0 = cfg.get("repair", {})
+        dlog(f"v8.56 使用炉石={'开' if rp0.get('use_hearth', True) else '关（走路去修理：最近的中心 → 回程路线倒着走 → 修理商）'}")
         dlog(f"v8.55 炉石回城修理={'开' if rp0.get('enabled', True) else '关'}：耐久 ≤ {rp0.get('durability_pct', 20)}% → "
              f"炉石「{cfg['keys'].get('hearth') or '-'}」→ 修理路线 {len(rp0.get('route') or [])} 个点"
              f"（修理商 = #{int(rp0.get('vendor_i', -1)) + 1 if int(rp0.get('vendor_i', -1)) >= 0 else '没标'}）"

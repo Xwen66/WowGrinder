@@ -17,6 +17,7 @@ from .navigation import angle_diff, bearing_to, distance
 
 REPAIR_DEFAULTS = {
     "enabled": True,          # 炉石回城修理（还要录好路线、填好炉石键/选修理商键才会用）
+    "use_hearth": True,       # v8.56：关 = 不用炉石，先走到最近的中心，再把回程路线倒着走到修理商，修完照回程路线走回来
     "durability_pct": 20,     # 最低耐久 ≤ 这个 → 回城修理
     "stop_pct": 5,            # 炉石冷却/没设置好修不了时：耐久 ≤ 这个就停止（0 = 不停）
     "confirm_s": 3.0,         # 耐久低要连续这么久才回城（防读错）
@@ -79,7 +80,7 @@ class RepairMixin:
     def _rp_missing(self) -> list[str]:
         c, k = self._rp_cfg(), self.cfg["keys"]
         out = []
-        if not (k.get("hearth") or "").strip():
+        if c.get("use_hearth", True) and not (k.get("hearth") or "").strip():
             out.append("炉石键")
         if not (k.get("vendor_target") or "").strip():
             out.append("选修理商键")
@@ -99,7 +100,7 @@ class RepairMixin:
         pts = []
         for i, p in enumerate(self._rp_cfg().get("route") or []):
             try:
-                pts.append((float(p[0]), float(p[1]), int(p[2]) if len(p) > 2 and p[2] else 0, i))
+                pts.append((float(p[0]), float(p[1]), int(p[2]) if len(p) > 2 and p[2] else 0, i, f"路线点 #{i + 1}"))
             except (TypeError, ValueError, IndexError):
                 continue
         return pts
@@ -146,6 +147,9 @@ class RepairMixin:
         if miss:
             self._warn("rpmiss", f"🔧 耐久 {dur:.0f}% ≤ {line:.0f}%，但回城修理没设置好（缺：{'、'.join(miss)}）→ 不回城，接着打", 600)
             return self._rp_stop_low(dur, "修理没设置好")
+        if not c.get("use_hearth", True):
+            self._rp_begin_walk(obs, now, dur)
+            return True
         if not getattr(obs, "has_hearth", False):
             self._warn("rpnohs", f"🔧 耐久 {dur:.0f}% ≤ {line:.0f}%，但背包里没有炉石 → 不回城，接着打", 600)
             return self._rp_stop_low(dur, "背包里没有炉石")
@@ -173,6 +177,59 @@ class RepairMixin:
                  f"（按「{key}」，现在在地图 {obs.map_id}）")
         self._event("repair", f"耐久 {dur:.0f}% → 炉石回城修理", 0)
 
+    def _rp_begin_walk(self, obs, now, dur):
+        """v8.56：不用炉石 → 先走到最近的中心，再把回程路线（修理商之后的点）倒着走到修理商。"""
+        from .state_machine import State
+        self._stop_walk()
+        c = self._rp_cfg()
+        self.rp = {"phase": "to_vendor", "t": now, "t0": now, "press_t": -1e9, "presses": 0, "cast_seen": False,
+                   "map0": obs.map_id, "pos0": obs.pos, "dur0": dur, "paused": False, "walk": True}
+        self.state = State.REPAIR
+        self.log(f"🔧 耐久 {dur:.0f}% ≤ {float(c['durability_pct']):.0f}% → 走路去修理（不用炉石）："
+                 "先到最近的中心，再把回程路线倒着走到修理商")
+        self._event("repair", f"耐久 {dur:.0f}% → 走路去修理", 0)
+        self._rp_seg_walk_out(obs, now)
+
+    def _rp_walk_out_pts(self, obs):
+        """[最近的同地图中心] + 回程路线倒过来 + 修理商点。"""
+        c = self._rp_cfg()
+        route = self._rp_route()
+        vi = int(c.get("vendor_i", -1))
+        back = [p for p in route if p[3] > vi]
+        vend = [p for p in route if p[3] == vi]
+        cands = [(distance(obs.pos, cc[:2]), i) for i, cc in enumerate(self.centers)
+                 if obs.pos is not None and self._same_map(cc, obs.map_id)]
+        if not cands and self.home is not None and obs.pos is not None and self._same_map(self.home, obs.map_id):
+            cands = [(distance(obs.pos, self.home[:2]), -1)]
+        if not cands:
+            return None
+        _, i = min(cands)
+        cc = self.centers[i] if i >= 0 else self.home
+        cm = int(cc[2]) if len(cc) > 2 and cc[2] else int(obs.map_id or 0)
+        center = (float(cc[0]), float(cc[1]), cm, -1, f"中心 #{i + 1}" if i >= 0 else "中心")
+        return [center] + list(reversed(back)) + vend
+
+    def _rp_seg_walk_out(self, obs, now):
+        pts = self._rp_walk_out_pts(obs)
+        if pts is None:
+            return self._rp_fail(f"走路去修理：地图 {obs.map_id} 上没有中心")
+        rp = self.rp
+        rp.update(seg=("out", None), seg_name="走去修理商", pts=pts, wi=0, seg_t0=now, prog_pos=obs.pos, prog_t=now,
+                  stuck=0, lvl=0, cross_t0=None, miss_t=None, log_t=-1e9)
+        self.log(f"🔧 走去修理商：先去{pts[0][4]}（离它 {distance(obs.pos, pts[0][:2]):.2f}），"
+                 f"再倒着走回程路线 {len(pts) - 2} 个点 → {pts[-1][4]}（修理商）")
+        return True
+
+    def _rp_resume_out(self, obs, now, rp):
+        """打完怪接着走“去修理商”：从离自己最近的点接着走（同地图，不回头去已经走过的中心）。"""
+        pts = rp["pts"]
+        same = [k for k, p in enumerate(pts) if not p[2] or not obs.map_id or p[2] == int(obs.map_id)]
+        if obs.pos is None or not same:
+            return
+        k = min(same, key=lambda j: distance(obs.pos, pts[j][:2]))
+        k = max(k, min(rp["wi"], len(pts) - 1))          # 不回头去已经走过的点
+        rp.update(wi=k, seg_t0=now, prog_pos=obs.pos, prog_t=now, stuck=0, lvl=0, cross_t0=None)
+
     def _rp_fail(self, why) -> bool:
         self._stop_walk()
         self.rp = None
@@ -198,18 +255,23 @@ class RepairMixin:
             return self._rp_load(obs, now, c, rp)
         if ph in ("to_vendor", "back"):
             if rp.get("paused"):
-                if obs.in_combat or self.state not in (State.SEARCHING, State.RETURNING, State.REPAIR):
-                    return False              # 打完怪、回完血再接着走
+                if obs.in_combat or self.state not in (State.SEARCHING, State.RETURNING, State.REPAIR,
+                                                       State.APPROACHING):
+                    return False              # 打完怪、回完血再接着走（v8.56：不主动找怪，接近别的怪也放弃）
                 rp["paused"] = False
                 self.state = State.REPAIR
                 self.log("🔧 打完了 → 接着走修理路线")
-                if not self._rp_seg(obs, now, rp["seg"][0], rp["seg"][1], rp["seg_name"]):
+                if rp["seg"][0] == "out":
+                    self._rp_resume_out(obs, now, rp)
+                elif not self._rp_seg(obs, now, rp["seg"][0], rp["seg"][1], rp["seg_name"], start_near=False):
+                    return True
+                if self.rp is None:
                     return True
             elif obs.in_combat:
                 self._stop_walk()
                 rp["paused"] = True
                 self.state = State.SEARCHING
-                self.log("🔧 修理路上被打了 → 先打怪，打完接着走")
+                self.log("🔧 修理路上被打了 → 先还手，打完接着走（不主动找别的怪）")
                 return False
             self.state = State.REPAIR
             res = self._rp_walk(obs, now, c, rp)
@@ -357,13 +419,13 @@ class RepairMixin:
         k = min(same, key=lambda j: distance(obs.pos, pts[j][:2]))
         dk = distance(obs.pos, pts[k][:2])
         if start_near and dk > float(c["start_max_dist"]):
-            return self._rp_fail(f"{name}：离路线最近的点 #{pts[k][3] + 1} 还有 {dk:.2f}（> {float(c['start_max_dist']):.2f}）"
+            return self._rp_fail(f"{name}：离路线最近的点 {pts[k][4]} 还有 {dk:.2f}（> {float(c['start_max_dist']):.2f}）"
                                  "→ 位置不对（炉石绑在别的旅店？）")
         if k + 1 < len(pts) and pts[k + 1][2] == pts[k][2] and dk > float(c["arrive_dist"]) and \
                 distance(obs.pos, pts[k + 1][:2]) < distance(pts[k][:2], pts[k + 1][:2]):
             k += 1
         rp["wi"] = k
-        self.log(f"🔧 {name}：共 {len(pts)} 个点，从 #{pts[k][3] + 1} 开始（离它 {distance(obs.pos, pts[k][:2]):.2f}）")
+        self.log(f"🔧 {name}：共 {len(pts)} 个点，从 {pts[k][4]} 开始（离它 {distance(obs.pos, pts[k][:2]):.2f}）")
         return True
 
     def _rp_walk(self, obs, now, c, rp) -> str:
@@ -392,7 +454,7 @@ class RepairMixin:
                 later = [k for k in range(rp["wi"], n) if pts[k][2] == cur]
                 if later:
                     k = min(later, key=lambda j: distance(obs.pos, pts[j][:2]))
-                    self.log(f"🔧 已经在地图 {cur} → 从路线点 #{pts[k][3] + 1} 接着走")
+                    self.log(f"🔧 已经在地图 {cur} → 从{pts[k][4]}接着走")
                     rp.update(wi=k, cross_t0=None, stuck=0, lvl=0)
                     continue
                 return self._rp_cross(obs, now, c, rp, p)
@@ -401,7 +463,7 @@ class RepairMixin:
             if d <= float(c["arrive_dist"]):
                 rp["wi"] += 1
                 rp["stuck"], rp["lvl"] = 0, 0
-                self.dlog(f"[修理] 到路线点 #{p[3] + 1}（距离 {d:.2f}）")
+                self.dlog(f"[修理] 到{p[4]}（距离 {d:.2f}）")
                 continue
             break
         p = pts[rp["wi"]]
@@ -409,7 +471,7 @@ class RepairMixin:
             return "walking" if self.rp is not None else "fail"
         if now - rp["log_t"] >= 10:
             rp["log_t"] = now
-            self.log(f"🔧 {rp['seg_name']}：去路线点 #{p[3] + 1}（离它 {distance(obs.pos, p[:2]):.2f}，"
+            self.log(f"🔧 {rp['seg_name']}：去{p[4]}（离它 {distance(obs.pos, p[:2]):.2f}，"
                      f"还剩 {n - rp['wi']} 个点）")
         self._rp_steer(obs, bearing_to(obs.pos, p[:2]))
         return "walking"

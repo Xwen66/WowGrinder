@@ -91,7 +91,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.55")
+        self.title("WowGrinder 熊德自动打怪 v8.56")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -897,6 +897,9 @@ class App(tk.Tk):
                        ).grid(row=0, column=0, columnspan=4, sticky="w")
         rows = [
             ("repair", "enabled", "炉石回城修理", "bool", "还要录好路线、填好两个键才会用"),
+            ("repair", "use_hearth", "使用炉石回城", "bool",
+             "v8.56 默认开。关 = 不用炉石：先走到最近的中心，把路线里修理商之后的“回程”点倒着走到修理商（F4 点），"
+             "修完再照回程走回来（只要录回程那一段；换模式就重录）"),
             ("repair", "durability_pct", "耐久低于多少回城(%)", "int", "默认 20：身上装备最低的那件 ≤ 这个"),
             ("repair", "stop_pct", "修不了时停止线(%)", "int", "默认 5：炉石冷却/没设置好时，耐久 ≤ 这个就停止；0 = 不停"),
             ("repair", "repaired_pct", "修好的标准(%)", "int", "默认 90：商人窗口开了以后耐久回到这个算修好"),
