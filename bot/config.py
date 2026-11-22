@@ -272,6 +272,12 @@ DEFAULT_CONFIG: dict = {
         "stuck_max": 8,           # 同一段路卡住超过这么多次 → 停止
         "seg_timeout_s": 300.0,   # 一段路最多走多久（秒）
         "repaired_pct": 90,       # 耐久回到这个 = 修好了
+        # v8.57（t225u）
+        "ignore_combat": True,    # 去修理商 / 走回来的路上被怪打也不还手，接着走（血量 ≤ fight_back_hp_pct 才还手）
+        "fight_back_hp_pct": 40,  # 无视怪物时血量 ≤ 这个 → 先还手（照常治疗），打完接着走；0 = 永远不还手
+        "bag_trip": True,         # 背包满了也走修理流程（插件 v0.16 卖掉所有灰色物品，顺便修理）
+        "bag_trip_cd_s": 1800.0,  # 卖完后这么久内背包又满了 → 不再专门回去卖，照旧只捡钱
+        "cat_travel": True,       # 去修理商 / 走回来的路上用猎豹形态走
     },
     "meta": {
         "migrations": [],         # 已经做过的一次性配置升级（别手动改）

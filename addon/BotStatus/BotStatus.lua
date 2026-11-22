@@ -2,6 +2,8 @@
 BotStatus：把角色状态画成屏幕左上角的纯色方块，给 WowGrinder（Python）截图读取。
 兼容《魔兽世界：无限》1.60.1（TOC 16001，带 Midnight 的"机密值/secret values"限制）。
 
+v0.16：给 WowGrinder v8.57“背包满了回去卖垃圾”用：打开商人 → 卖掉**所有**灰色物品
+      （每批 12 个，每 0.3 秒一批，商人关了就停；没有 C_Timer 时只卖第一批）。色块不变。
 v0.15：给 WowGrinder v8.55“炉石回城修理”用：
       块 42 = R=商人窗口开着，G=这个商人能修理，B=1（v0.15 签名）；
       块 43 = R=背包里有炉石，G=耐久读得到，B=1；
@@ -82,7 +84,7 @@ local CFG = {
   buffLowSec = 60,     -- 剩余不到 N 秒算“快没了”（黄）
   -- v0.15 修理
   autoRepair = true,   -- 打开能修理的商人 → 全部修理（钱够才修）
-  sellJunk = true,     -- 打开商人 → 卖掉灰色物品（每次最多 12 个）
+  sellJunk = true,     -- 打开商人 → 卖掉所有灰色物品（v0.16：每批 12 个，每 0.3 秒一批）
   hearthID = 6948,     -- 炉石
 }
 
@@ -486,22 +488,36 @@ local function UseBagItem(bag, slot)
   if _G.C_Container and C_Container.UseContainerItem then return C_Container.UseContainerItem(bag, slot) end
   return UseContainerItem(bag, slot)
 end
+local sellTotal, sellSeen = 0, {}
+local function SellBatch()   -- v0.16：卖一批（最多 12 个）灰色物品；还有就 0.3 秒后再卖一批
+  if not merchantOpen then return end
+  local sold, more = 0, false
+  pcall(function()
+    for bag = 0, 4 do
+      for slot = 1, (BagNumSlots(bag) or 0) do
+        local q, canSell = BagItem(bag, slot)
+        if q == 0 and canSell and not sellSeen[bag * 100 + slot] then
+          if sold >= 12 then more = true; return end
+          sellSeen[bag * 100 + slot] = true
+          UseBagItem(bag, slot); sold = sold + 1
+        end
+      end
+    end
+  end)
+  sellTotal = sellTotal + sold
+  if more and _G.C_Timer and C_Timer.After then
+    C_Timer.After(0.3, SellBatch)
+  elseif sellTotal > 0 then
+    print(string.format("|cff40ff40BotStatus|r 卖掉了 %d 个灰色物品", sellTotal))
+  end
+end
 local function OnMerchantShow()
   merchantOpen = true
   merchantRepair = false
   pcall(function() merchantRepair = CanMerchantRepair() and true or false end)
   if CFG.sellJunk then
-    local sold = 0
-    pcall(function()
-      for bag = 0, 4 do
-        for slot = 1, (BagNumSlots(bag) or 0) do
-          if sold >= 12 then return end
-          local q, canSell = BagItem(bag, slot)
-          if q == 0 and canSell then UseBagItem(bag, slot); sold = sold + 1 end
-        end
-      end
-    end)
-    if sold > 0 then print(string.format("|cff40ff40BotStatus|r 卖掉了 %d 个灰色物品", sold)) end
+    sellTotal, sellSeen = 0, {}
+    SellBatch()
   end
   if CFG.autoRepair and merchantRepair then
     pcall(function()
@@ -1100,7 +1116,7 @@ local function ApplyNameplateDistance(verbose)
   npDist = best and math.floor(best + 0.5) or nil
   npOK = npDist ~= nil
   if verbose then
-    print(string.format("|cff40ff40BotStatus v0.15|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
+    print(string.format("|cff40ff40BotStatus v0.16|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
       tostring(npDist or "读不到"), tostring(before or "?")))
   end
 end

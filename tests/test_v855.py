@@ -221,6 +221,7 @@ class Flow(RepBase):
         self.assertFalse(self.g.stopped)
 
     def test_attacked_on_way_back_fights_then_resumes(self):
+        self.cfg["repair"]["ignore_combat"] = False         # v8.57：老行为（被打就还手）
         self.start_cast()
         self.land()
         self.walk_to_vendor()
@@ -417,7 +418,7 @@ class Strings(unittest.TestCase):
         lua = _rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.lua"))
         self.assertIn("local NUM_BLOCKS = 44", lua)
         self.assertIn("RepairAllItems", lua)
-        self.assertIn("## Version: 0.15.0", _rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc")))
+        self.assertRegex(_rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc")), r"## Version: 0\.1[5-9]\.0")
 
 
 if __name__ == "__main__":

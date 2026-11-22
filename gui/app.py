@@ -91,7 +91,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.56")
+        self.title("WowGrinder 熊德自动打怪 v8.57")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -900,6 +900,12 @@ class App(tk.Tk):
             ("repair", "use_hearth", "使用炉石回城", "bool",
              "v8.56 默认开。关 = 不用炉石：先走到最近的中心，把路线里修理商之后的“回程”点倒着走到修理商（F4 点），"
              "修完再照回程走回来（只要录回程那一段；换模式就重录）"),
+            ("repair", "ignore_combat", "路上无视怪物", "bool",
+             "v8.57 默认开：去修理商和走回来的路上被怪打也不还手，接着走，回到中心才开打（血量低于下面那条线才还手）"),
+            ("repair", "fight_back_hp_pct", "血量低于多少才还手(%)", "int", "默认 40：无视怪物时血量 ≤ 这个就先打（照常治疗），打完接着走；0 = 永远不还手"),
+            ("repair", "bag_trip", "背包满了也回去卖垃圾", "bool",
+             "v8.57 默认开：认定背包满了 → 走同样的修理流程，插件 v0.16 卖掉所有灰色物品（顺便修理）"),
+            ("repair", "cat_travel", "路上用猎豹形态走", "bool", "v8.57 默认开：要在“基本”页填好猎豹形态键"),
             ("repair", "durability_pct", "耐久低于多少回城(%)", "int", "默认 20：身上装备最低的那件 ≤ 这个"),
             ("repair", "stop_pct", "修不了时停止线(%)", "int", "默认 5：炉石冷却/没设置好时，耐久 ≤ 这个就停止；0 = 不停"),
             ("repair", "repaired_pct", "修好的标准(%)", "int", "默认 90：商人窗口开了以后耐久回到这个算修好"),

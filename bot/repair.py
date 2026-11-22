@@ -37,6 +37,13 @@ REPAIR_DEFAULTS = {
     "repair_wait_s": 8.0,     # 商人窗口开了最多等多久修好
     "max_attempts": 3,        # 炉石被打断（被怪打）最多重试几次，再不行就停止
     "total_timeout_s": 1200.0,  # 整个修理流程最多多久
+    # v8.57（t225u）
+    "ignore_combat": True,    # 去修理商 / 走回刷怪区的路上：被怪打也不还手，接着走（血量低于下面这条线才还手）
+    "fight_back_hp_pct": 40,  # 无视怪物时，血量 ≤ 这个 → 先还手（会照常治疗），打完接着走；0 = 永远不还手
+    "bag_trip": True,         # 背包满了也走修理流程（插件打开商人自动卖掉灰色物品，顺便修理）
+    "bag_trip_cd_s": 1800.0,  # 卖完垃圾后这么久内背包又满了 → 不再专门回去卖，照旧只捡钱
+    "sell_wait_s": 3.0,       # 背包满去卖垃圾：商人窗口开着至少等这么久（插件分批卖）再关
+    "cat_travel": True,       # 去修理商 / 走回来的路上用猎豹形态走（快）
 }
 
 DETOURS = (60, -60, 90, -90, 120, -120)
@@ -63,11 +70,15 @@ class RepairMixin:
         c.update(self.cfg.get("repair") or {})
         return c
 
+    def _rp_why_cn(self, why) -> str:
+        return {"dur": "修理", "bag": "卖垃圾", "both": "修理 + 卖垃圾"}.get(why, "修理")
+
     def _rp_init(self):
         self.rp = None                # 正在修理 {"phase", ...}
         self.rp_low_since = None
         self.rp_attempts = 0
         self.rp_old_noted = False
+        self.rp_bag_cd = -1e9           # v8.57：这个时间之前背包满了不专门回去卖
 
     def repair_label(self) -> str:
         rp = getattr(self, "rp", None)
@@ -134,7 +145,10 @@ class RepairMixin:
         if dur is None or obs.player_dead or getattr(obs, "ghost", False):
             return False
         line = float(c.get("durability_pct", 20))
-        if dur > line:
+        low = dur <= line
+        bag = bool(c.get("bag_trip", True)) and bool(getattr(self, "bag_full", False)) \
+            and now >= getattr(self, "rp_bag_cd", -1e9)
+        if not low and not bag:
             self.rp_low_since = None
             return False
         if self.state not in (State.SEARCHING, State.RETURNING) or obs.in_combat:
@@ -143,13 +157,26 @@ class RepairMixin:
             self.rp_low_since = now
         if now - self.rp_low_since < float(c.get("confirm_s", 3.0)):
             return False
+        why = "both" if (low and bag) else ("dur" if low else "bag")
         miss = self._rp_missing()
         if miss:
+            if not low:
+                self._warn("rpbagmiss", f"🎒 背包满了，但修理路线/键没设置好（缺：{'、'.join(miss)}）→ 不回去卖，照旧只捡钱", 600)
+                return False
             self._warn("rpmiss", f"🔧 耐久 {dur:.0f}% ≤ {line:.0f}%，但回城修理没设置好（缺：{'、'.join(miss)}）→ 不回城，接着打", 600)
             return self._rp_stop_low(dur, "修理没设置好")
         if not c.get("use_hearth", True):
-            self._rp_begin_walk(obs, now, dur)
+            self._rp_begin_walk(obs, now, dur, why)
             return True
+        if not low and (not getattr(obs, "has_hearth", False) or getattr(obs, "hearth_cd", None) is None
+                        or obs.hearth_cd > 0):
+            self.rp_bag_cd = now + 300.0
+            self.rp_low_since = None
+            cd = getattr(obs, "hearth_cd", None)
+            self.log("🎒 背包满了，但炉石" + ("不在背包里" if not getattr(obs, "has_hearth", False) else
+                                         (f"还要 {cd} 分钟" if cd else "冷却读不到"))
+                     + " → 先照旧只捡钱，5 分钟后再看")
+            return False
         if not getattr(obs, "has_hearth", False):
             self._warn("rpnohs", f"🔧 耐久 {dur:.0f}% ≤ {line:.0f}%，但背包里没有炉石 → 不回城，接着打", 600)
             return self._rp_stop_low(dur, "背包里没有炉石")
@@ -163,31 +190,39 @@ class RepairMixin:
             self._stop_walk()
             self.stop(f"回城修理已经被打断 {self.rp_attempts} 次（读炉石时被怪打）")
             return True
-        self._rp_begin(obs, now, dur)
+        self._rp_begin(obs, now, dur, why)
         return True
 
-    def _rp_begin(self, obs, now, dur):
+    def _rp_begin(self, obs, now, dur, why="dur"):
         from .state_machine import State
         self._stop_walk()
         self.rp = {"phase": "cast", "t": now, "t0": now, "press_t": -1e9, "presses": 0, "cast_seen": False,
-                   "map0": obs.map_id, "pos0": obs.pos, "dur0": dur, "paused": False}
+                   "map0": obs.map_id, "pos0": obs.pos, "dur0": dur, "paused": False, "why": why}
         self.state = State.REPAIR
         key = self.cfg["keys"].get("hearth")
-        self.log(f"🔧 耐久 {dur:.0f}% ≤ {float(self._rp_cfg()['durability_pct']):.0f}% → 炉石回城修理"
+        self.log(f"{self._rp_reason(dur, why)} → 炉石回城{self._rp_why_cn(why)}"
                  f"（按「{key}」，现在在地图 {obs.map_id}）")
-        self._event("repair", f"耐久 {dur:.0f}% → 炉石回城修理", 0)
+        self._event("repair", f"{self._rp_reason(dur, why)} → 炉石回城{self._rp_why_cn(why)}", 0)
 
-    def _rp_begin_walk(self, obs, now, dur):
+    def _rp_reason(self, dur, why) -> str:
+        line = float(self._rp_cfg()["durability_pct"])
+        if why == "bag":
+            return f"🎒 背包满了（耐久 {dur:.0f}%）"
+        if why == "both":
+            return f"🔧 耐久 {dur:.0f}% ≤ {line:.0f}% 而且背包满了"
+        return f"🔧 耐久 {dur:.0f}% ≤ {line:.0f}%"
+
+    def _rp_begin_walk(self, obs, now, dur, why="dur"):
         """v8.56：不用炉石 → 先走到最近的中心，再把回程路线（修理商之后的点）倒着走到修理商。"""
         from .state_machine import State
         self._stop_walk()
         c = self._rp_cfg()
         self.rp = {"phase": "to_vendor", "t": now, "t0": now, "press_t": -1e9, "presses": 0, "cast_seen": False,
-                   "map0": obs.map_id, "pos0": obs.pos, "dur0": dur, "paused": False, "walk": True}
+                   "map0": obs.map_id, "pos0": obs.pos, "dur0": dur, "paused": False, "walk": True, "why": why}
         self.state = State.REPAIR
-        self.log(f"🔧 耐久 {dur:.0f}% ≤ {float(c['durability_pct']):.0f}% → 走路去修理（不用炉石）："
+        self.log(f"{self._rp_reason(dur, why)} → 走路去{self._rp_why_cn(why)}（不用炉石）："
                  "先到最近的中心，再把回程路线倒着走到修理商")
-        self._event("repair", f"耐久 {dur:.0f}% → 走路去修理", 0)
+        self._event("repair", f"{self._rp_reason(dur, why)} → 走路去{self._rp_why_cn(why)}", 0)
         self._rp_seg_walk_out(obs, now)
 
     def _rp_walk_out_pts(self, obs):
@@ -268,12 +303,19 @@ class RepairMixin:
                 if self.rp is None:
                     return True
             elif obs.in_combat:
-                self._stop_walk()
-                rp["paused"] = True
-                self.state = State.SEARCHING
-                self.log("🔧 修理路上被打了 → 先还手，打完接着走（不主动找别的怪）")
-                return False
+                if self._rp_ignore(obs, now, c, rp):
+                    pass                      # v8.57：不还手，接着走
+                else:
+                    self._stop_walk()
+                    rp["paused"] = True
+                    self.state = State.SEARCHING
+                    self.log("🔧 修理路上被打了 → 先还手，打完接着走（不主动找别的怪）")
+                    return False
+            elif rp.get("ign_noted"):
+                rp["ign_noted"] = False
+                self.log("🔧 脱战了（怪没追上/打不着）→ 接着走")
             self.state = State.REPAIR
+            self._rp_cat(obs, now, c, rp)
             res = self._rp_walk(obs, now, c, rp)
             if res != "done":
                 return True
@@ -288,6 +330,42 @@ class RepairMixin:
         if ph == "repairing":
             return self._rp_repairing(obs, now, c, rp)
         return True
+
+    def _rp_ignore(self, obs, now, c, rp) -> bool:
+        """v8.57：战斗中要不要无视怪接着走。血量 ≤ fight_back_hp_pct → 不再无视，先还手（照常治疗）。"""
+        if not c.get("ignore_combat", True):
+            return False
+        line = float(c.get("fight_back_hp_pct", 40) or 0)
+        hp = obs.player_hp if getattr(obs, "hp_readable", True) else None
+        if line > 0 and hp is not None and hp <= line:
+            self.log(f"🔧 修理路上被打，血量 {hp:.0f}% ≤ {line:.0f}% → 不跑了，先还手（会照常治疗），打完接着走")
+            rp["ign_noted"] = False
+            return False
+        if not rp.get("ign_noted"):
+            rp["ign_noted"] = True
+            self.log(f"🔧 修理路上被打了 → 不理它，接着走（血量 ≤ {line:.0f}% 才还手）" if line > 0
+                     else "🔧 修理路上被打了 → 不理它，接着走")
+        return True
+
+    def _rp_cat(self, obs, now, c, rp):
+        """v8.57：去修理商 / 走回来的路上用猎豹形态走。只在插件确定不是猎豹时才按（猎豹里再按会退出变形）。"""
+        if not c.get("cat_travel", True):
+            return
+        key = str(self.cfg["keys"].get("cat_form") or "").strip()
+        if not key:
+            self._warn("rpcatkey", "⚠️ 修理路上想用猎豹形态走，但“猎豹形态键”没填（基本页）→ 用现在的形态走", 600)
+            return
+        if obs.form in ("unknown", "cat", None) or obs.casting:
+            return
+        if now - rp.get("cat_t", -1e9) < 3.0:
+            return
+        rp["cat_t"] = now
+        rp["cat_n"] = rp.get("cat_n", 0) + 1
+        self._ctx("修理路上：变猎豹")
+        self.inp.press(key)
+        if rp["cat_n"] <= 1 or rp["cat_n"] % 10 == 0:
+            self.log(f"🐆 修理路上变猎豹形态走（按「{key}」，现在形态 {obs.form}）")
+        self.bear_belief = self._cform() == "cat"
 
     def _rp_cast(self, obs, now, c, rp) -> bool:
         if obs.in_combat:
@@ -353,6 +431,9 @@ class RepairMixin:
             rp["tries"] += 1
             rp["press_t"] = now
             k = self.cfg["keys"]
+            if rp["tries"] >= 2 and obs.form in ("cat", "bear") and self._cancel_distinct():
+                self.log(f"🔧 商人窗口没开，现在是{obs.form}形态 → 先取消变形再试")
+                self.inp.press(k["cancel_form"])
             self._ctx("回城修理：选修理商 + 互动")
             self.inp.press(k["vendor_target"])
             self.inp.press(k["interact"])
@@ -361,15 +442,19 @@ class RepairMixin:
 
     def _rp_repairing(self, obs, now, c, rp) -> bool:
         dur = getattr(obs, "durability", None)
+        why = rp.get("why", "dur")
+        if why != "dur" and getattr(obs, "merchant_open", False) and now - rp["t"] < float(c.get("sell_wait_s", 3.0)):
+            return True                       # v8.57：等插件分批卖完灰色物品
         if dur is not None and dur >= float(c["repaired_pct"]):
-            self.log(f"🔧 修好了（耐久 {rp['dur0']:.0f}% → {dur:.0f}%）→ 关商人窗口，照路线走回刷怪区")
+            self.log(f"🔧 {'卖完垃圾' if why == 'bag' else '修好了'}（耐久 {rp['dur0']:.0f}% → {dur:.0f}%）→ 关商人窗口，照路线走回刷怪区")
             if getattr(obs, "merchant_open", False):
                 self.inp.press("esc")
             rp["phase"] = "back"
             vi = int(c.get("vendor_i", -1))
             self._rp_seg(obs, now, vi + 1, len(self._rp_route()) - 1, "走回刷怪区", start_near=False)
             return True
-        if getattr(obs, "merchant_open", False) and not getattr(obs, "merchant_repair", False) and now - rp["t"] > 1.5:
+        if getattr(obs, "merchant_open", False) and not getattr(obs, "merchant_repair", False) and now - rp["t"] > 1.5 \
+                and why != "bag":
             return self._rp_fail("这个商人不能修理（选修理商的宏选错人了？）")
         if now - rp["t"] > float(c["repair_wait_s"]):
             return self._rp_fail(f"商人窗口开了 {float(c['repair_wait_s']):.0f} 秒，耐久还是 "
@@ -392,6 +477,11 @@ class RepairMixin:
         dur = getattr(obs, "durability", None)
         self.log(f"🔧 回城修理完成（耐久 {dur if dur is not None else '?'}%，用了 {now - self.rp['t0']:.0f} 秒）"
                  f"→ 走回中心" + (f" #{i + 1}" if i >= 0 else "") + f"（离它 {d:.2f}）")
+        if self.rp.get("why", "dur") != "dur":
+            cd = float(self._rp_cfg().get("bag_trip_cd_s", 1800.0))
+            self.rp_bag_cd = now + cd
+            self.bag_full, self.bag_noresp, self.bag_corpses, self.bag_skip = False, 0, 0, False
+            self.log(f"🎒 卖完垃圾 → 恢复拾取/剥皮；{cd / 60:.0f} 分钟内背包又满了就不再专门回去卖，照旧只捡钱")
         self.rp = None
         self.rp_attempts = 0
         self.rp_low_since = None

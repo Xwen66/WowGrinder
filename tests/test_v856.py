@@ -74,6 +74,7 @@ class Walk(RepBase):
         self.assertFalse(any("炉石还要" in m for m in self.logs))
 
     def test_fight_back_then_resume_no_seek(self):
+        self.cfg["repair"]["ignore_combat"] = False         # v8.57：老行为（被打就还手）
         self.start()
         self.go((40.0, 60.0))
         self.go((41.0, 60.0), combat=True, thp=90)
