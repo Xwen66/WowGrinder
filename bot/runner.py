@@ -95,11 +95,8 @@ class BotRunner:
              f"治疗之触={cfg['keys'].get('healing_touch')} Tab={cfg['keys'].get('target')}")
         hl0 = cfg["heal"]
         dlog(f"v8.27 战后治疗={'开' if hl0.get('post_enabled', True) else '关'}：血量 < {hl0.get('post_ht_below_pct', 70)}% "
-             f"生命之触「{cfg['keys'].get('healing_touch')}」/ 否则 "
-             + (f"< {hl0.get('post_rejuv_below_pct', 85)}% 回春术「{cfg['keys'].get('rejuvenation')}」/ 更高不治疗；"
-                if hl0.get("post_rejuv_enabled", True)
-                else "不治疗（v8.36 战后放回春术=关）；")
-             + f"互动键「{cfg['keys'].get('interact')}」")
+             f"生命之触「{cfg['keys'].get('healing_touch')}」/ 否则不治疗（v8.54 战后回春术已删掉）；"
+             f"互动键「{cfg['keys'].get('interact')}」")
         nc0 = cfg.get("nameplate", {})
         dlog(f"v8.28 找怪：插件 v0.11 标记={'开' if nc0.get('use_enemy_markers', True) else '关'} 顶部 {nc0.get('skip_top_pct', 23)}% 不点 "
              f"先停稳 {nc0.get('stop_settle_s', 0.3)}s 点前确认 {nc0.get('confirm_px', 25)}px 点后验证 {nc0.get('verify_s', 0.6)}s "
@@ -130,6 +127,10 @@ class BotRunner:
         dlog(f"v8.51 走路时“红名”不动=界面：{np0.get('red_walk_static_s', 2.0)} 秒内挪不到 {np0.get('red_walk_static_px', 5)} 像素"
              f"且人走了 ≥ {np0.get('red_walk_min_move', 0.15)} → 先 {np0.get('red_walk_bad_s', 120)} 秒不看，"
              f"同一位置 {np0.get('red_walk_hits', 2)} 次 → 这次运行不看")
+        hl0, ar0 = cfg.get("heal", {}), cfg.get("area", {})
+        dlog(f"v8.54 战后回春术已删掉（只在血量 < {hl0.get('post_ht_below_pct', 60)}% 时生命之触）；"
+             f"停着 Tab 连续 {ts0.get('miss_limit', 3)} 次没选到 → 暂停 {ts0.get('miss_backoff_s', 30)} 秒；"
+             f"中心连续 {ar0.get('center_skip_fails', 2)} 次去不了 → 这次运行跳过")
         ea0 = cfg.get("eat", {})
         dlog(f"v8.49 自动进食={'开' if ea0.get('enabled', True) else '关'}（进食键「{ea0.get('key') or '没填'}」，"
              f"没“充分进食”buff、附近没怪时变人形吃 ≥ {ea0.get('min_s', 11)} 秒；要插件 v0.14）；背包满只捡钱不再按 Esc")

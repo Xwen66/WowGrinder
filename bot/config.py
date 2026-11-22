@@ -24,7 +24,6 @@ DEFAULT_CONFIG: dict = {
         "healing_touch": "5",     # 治疗之触（唯一的治疗技能，人形施放）
         "thorns": "r",            # v8.4 荆棘术（人形施放）
         "motw": "t",              # v8.4 野性印记（人形施放）
-        "rejuvenation": "g",      # v8.27 回春术（宏：自带取消变形）：战斗结束血量 70%-99% 时按
         "loot": "`",              # 拾取键（没填“与目标互动键”时用它）
         "interact": "`",          # v8.27 默认 `（Esc 下面那个键）。与目标互动键（Interact with Target）：拾取 + 剥皮都按它；找不到选中姓名板时补救
         "scan_turn": "right",     # 屏幕里没有姓名板时转视角：小键盘右(关闭数字锁定时)=方向键右=right；
@@ -101,12 +100,8 @@ DEFAULT_CONFIG: dict = {
         "reserve_learn": True,    # 自动测变身实际耗蓝；实测比设置高 → 用 实测+2
         "reserve_margin_pct": 3,  # v8.42：治疗前算“治疗后法力 ≥ 变身预留 + 这个余量”才放（治疗之触耗蓝按最近实测最贵的算）
         # v8.27 战后治疗：每次战斗结束治疗一次（代替旧的“低于 60% 才人形回血到 90%”）
-        "post_enabled": True,     # 开 = 血量 < post_ht_below_pct 按生命之触（治疗之触键），否则 < 100% 按回春术键；满血不治疗
-        "post_rejuv_enabled": True,  # v8.36：关 = 战后不放回春术（血量 ≥ post_ht_below_pct 就直接继续打；低于照样生命之触）
-        "post_ht_below_pct": 60,  # 低于此血量用生命之触（读条，挨打也读完），高于用回春术（v8.47：70 → 60）
-        "post_rejuv_below_pct": 85,  # v8.47：战后 生命之触线 ~ 这个之间用回春术；≥ 这个 → 战后不治疗
-        "rejuv_cost_pct": 12,     # 回春术大约耗多少 %（实测后自动更新）
-        "rejuv_no_repeat_s": 12,  # v8.30：回春术放完 N 秒内（持续时间）战后不再放回春术，也不变形；0 = 不限制
+        "post_enabled": True,     # 开 = 血量 < post_ht_below_pct 按生命之触（治疗之触键）；更高不治疗（v8.54 战后回春术删掉了）
+        "post_ht_below_pct": 60,  # 战后低于此血量用生命之触（读条，挨打也读完），高于不治疗（v8.47：70 → 60）
         "heal_cost_pct": 20,      # 一个治疗之触大约耗多少 %（实测后自动更新，日志里实测约 18-28%）
         "buff_cost_pct": 10,      # 一个 buff 大约耗多少 %（实测后自动更新）
         # v8.46 先回蓝再开怪：脱战后 血量 < mana_rest_hp_below 且 法力 < 变身预留 + 治疗之触耗蓝 + mana_rest_margin_pct
@@ -175,6 +170,8 @@ DEFAULT_CONFIG: dict = {
         "far_walk_tab": False,    # v8.50：朝远处红名走的路上不按 Tab（一出标记就点）
         "move_interval_s": 1.8,   # 移动中每隔几秒按一次
         "move_jitter_s": 0.4,     # 随机 ±
+        "miss_limit": 3,          # v8.54：停着找怪时连续这么多次 Tab 都没选到怪 → 暂停 Tab（0 = 不暂停）
+        "miss_backoff_s": 30.0,   # 暂停多久（这段时间靠转视角找标记/红名；找到怪就马上恢复）
     },
     "humanize": {
         # v8.10 随机小动作 + 随机休息（只在脱战、两只怪之间做；战斗中绝不做）
@@ -401,6 +398,7 @@ DEFAULT_CONFIG: dict = {
         "stuck_s": 3.0,               # 按着前进 N 秒位置没变 → 跳/平移脱困，2 次无效 → 停止
         "move_eps": 0.03,             # 位置变化小于此值视为没动
         "home_on_start": True,        # v8.17 开始打怪时把当前位置记为中心（关掉 = 用上面保存的中心坐标）
+        "center_skip_fails": 2,       # v8.54：同一个中心连续这么多次去不了（卡住/超时，中间没到过）→ 这次运行跳过它（0 = 不跳；至少留 1 个）
         "auto_switch_center": True,   # v8.46：离当前中心超出半径、但在另一个中心半径里 → 直接换成那个中心，不走回去
         "leash_ratio": 1.3,           # v8.17 点击模式：脱战追怪时离中心超过 半径×此值 → 放弃这只怪，走回中心
         "centers": [],                # v8.23 多中心巡逻 [[x, y, 地图], ...]；有 2 个以上：转一圈没找到怪 → 直线走去下一个，循环
@@ -497,6 +495,9 @@ def _merge(defaults: dict, loaded: dict) -> dict:
     return out
 
 # v8.25：不再使用的设置项（运行时从配置里删掉）
+REJUV_KEYS = {"heal": ["post_rejuv_enabled", "post_rejuv_below_pct", "rejuv_cost_pct", "rejuv_no_repeat_s"],
+              "keys": ["rejuvenation"]}       # v8.54：战后回春术删掉了
+
 REMOVED_KEYS = {
     "keys": ["cat_opener"],
     "move": ["combat_interact_interval_s"],
@@ -585,6 +586,11 @@ def _migrate(cfg: dict, loaded: dict) -> dict:
                     cfg["meta"]["interact_changed"] = True
                 keys[name] = "`"
         done.append("keys_v827")
+    if "post_rejuv_v854" not in done:                # v8.54（t220u）：战后回春术整个删掉 → 把它的设置项从 config.json 里拿掉（只做一次）
+        for n in REJUV_KEYS["heal"]:
+            cfg["heal"].pop(n, None)
+        keys.pop("rejuvenation", None)
+        done.append("post_rejuv_v854")
     for sec, names in REMOVED_KEYS.items():          # v8.25：删掉不再使用的设置项
         for n in names:
             (cfg.get(sec) or {}).pop(n, None)
@@ -631,20 +637,20 @@ def norm_key(key: str) -> str:
 
 
 def key_conflicts(cfg: dict) -> list[str]:
-    """v8.27：回春术键 / 互动键 和别的动作键撞了 → 返回说明文字。"""
+    """v8.27：互动键 / 复活键 和别的动作键撞了 → 返回说明文字。"""
     k = cfg.get("keys", {})
     names = {"attack": "开怪", "bear_form": "熊形态", "healing_touch": "治疗之触", "thorns": "荆棘术", "motw": "野性印记",
              "target_attacker": "选攻击我的怪", "clear_target": "清除目标", "cat_form": "猎豹形态", "cat_builder": "爪击",
              "cat_rake": "斜掠", "cat_finisher": "终结技", "cat_prowl": "潜行", "cat_tigers_fury": "猛虎之怒",
              "back": "后退", "forward": "前进", "strafe": "平移", "jump": "跳跃", "target": "选怪", "cancel_form": "取消变形",
-             "rejuvenation": "回春术", "interact": "与目标互动", "spirit": "释放灵魂/复活"}
+             "interact": "与目标互动", "spirit": "释放灵魂/复活"}
     out = []
-    for mine in ("rejuvenation", "interact", "spirit"):
+    for mine in ("interact", "spirit"):
         v = norm_key(k.get(mine) or "")
         if not v:
             continue
         for other, cn in names.items():
-            if other == mine or (mine == "interact" and other == "rejuvenation"):
+            if other == mine:
                 continue
             if norm_key(k.get(other) or "") == v:
                 out.append(f"{names[mine]}键「{v}」和{cn}键一样")

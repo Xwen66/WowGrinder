@@ -113,10 +113,13 @@ class Base(unittest.TestCase):
         # v8.50：旧测试用旧的找怪顺序（Tab → 标记 → 红名）、红名走路按 patrol_frames 停、不做“界面红名”检测（新行为见 test_v850）
         n.update(plates_first=False, far_click_frames=n["patrol_frames"], red_static_turns=0, red_walk_static_s=0, red_turn_static_deg=0)
         self.cfg["tab_search"]["far_walk_tab"] = True
+        # v8.54：旧测试 Tab 不暂停、中心不跳过（新行为见 test_v854）
+        self.cfg["tab_search"]["miss_limit"] = 0
+        self.cfg["area"]["center_skip_fails"] = 0
         if self.LEGACY:
             self.cfg["heal"]["heal_to_pct"] = 0                # v8.11 前：战斗治疗只放一个
         # v8.47：旧测试保留旧默认（战后 <70% 生命之触 / 其余回春 / 满血不治疗；没有开怪蓝线；多怪变熊开），新行为见 test_v847
-        self.cfg["heal"].update(post_ht_below_pct=70, post_rejuv_below_pct=100, pull_min_mana_pct=0)
+        self.cfg["heal"].update(post_ht_below_pct=70, pull_min_mana_pct=0)
         self.cfg["multi_bear"]["enabled"] = True
         self.clock = Clock()
         self.inp = FakeInput(self.cfg, self.clock)

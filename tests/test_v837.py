@@ -72,18 +72,18 @@ class NoFleeConfig(unittest.TestCase):
             json.dump({"flee": {"enabled": True, "max_s": 10}, "heal": {"post_rejuv_enabled": False}}, f)
         cfg = bcfg.load_config(p)
         self.assertNotIn("flee", cfg)
-        self.assertFalse(cfg["heal"]["post_rejuv_enabled"])     # v8.36 保留
+        self.assertNotIn("post_rejuv_enabled", cfg["heal"])     # v8.54 战后回春术删掉了
 
     def test_gui_has_no_flee_fields(self):
         with open(os.path.join(ROOT, "gui", "app.py"), encoding="utf-8") as f:
             src = f.read()
         self.assertNotIn('"flee"', src)
-        self.assertIn('"post_rejuv_enabled"', src)
+        self.assertNotIn('"post_rejuv_enabled"', src)            # v8.54 删掉了
         self.assertRegex(src, r"熊德自动打怪 v8\.(3[7-9]|[4-9]\d)")   # v8.38 起标题版本号往上走
 
     def test_kept_features(self):
         self.assertEqual(DEFAULT_CONFIG["nameplate"]["far_skip_s"], 5.0)             # v8.34
-        self.assertTrue(DEFAULT_CONFIG["heal"]["post_rejuv_enabled"])                # v8.36
+        self.assertNotIn("post_rejuv_enabled", DEFAULT_CONFIG["heal"])                # v8.54 删掉了
         self.assertTrue(hasattr(Grinder, "_next_center"))                            # v8.33
 
 

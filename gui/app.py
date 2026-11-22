@@ -53,7 +53,7 @@ ADVANCED = {
     ("loot", "delay_ms"), ("loot", "wait_ms"), ("loot", "skin_cast_s"), ("loot", "residual_wait_s"),
     ("buffs", "retry_s"), ("buffs", "max_tries"), ("buffs", "fallback_min_thorns"), ("buffs", "fallback_min_motw"),
     ("addon", "x"), ("addon", "y"), ("addon", "block"), ("addon", "calib_tolerance"), ("addon", "stale_s"),
-    ("heal", "reserve_learn"), ("heal", "heal_cost_pct"), ("heal", "buff_cost_pct"), ("heal", "rejuv_cost_pct"),
+    ("heal", "reserve_learn"), ("heal", "heal_cost_pct"), ("heal", "buff_cost_pct"),
     ("detect", "combat_mode"), ("detect", "combat_color_ratio"), ("detect", "template_threshold"),
     ("detect", "bar_mode"), ("detect", "column_fill_ratio"), ("detect", "dead_pct"),
     ("rotation", "brightness_ratio"),
@@ -91,7 +91,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.53")
+        self.title("WowGrinder 熊德自动打怪 v8.54")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -318,7 +318,6 @@ class App(tk.Tk):
             ("target", "选怪键（Tab）", "游戏里绑定“选择最近的敌人”，默认 Tab"), ("attack", "开怪键", "建议放月火术等远程技能，能把怪拉过来"),
             ("bear_form", "熊形态键", ""), ("cancel_form", "取消变形键", "默认=熊形态键（再按一次退出熊）；退不出就做 /cancelform 宏填那个键"),
             ("healing_touch", "治疗之触键（生命之触）", "战斗中低血 + 战后血量 < 70% 用；宏里自带取消变形就行"),
-            ("rejuvenation", "回春术键", "v8.27 战后血量 70%-99% 按它（宏：自带取消变形），默认 g"),
             ("thorns", "荆棘术键", "脱战没目标时检查，没有就人形补上（默认 r）"),
             ("motw", "野性印记键", "同上（默认 t）"),
             ("back", "后退键", "战斗补救：后退半步（默认 s）"),
@@ -370,15 +369,9 @@ class App(tk.Tk):
         self._field(f, r + 16, "杀完怪残留战斗最多等(秒)", "loot", "residual_wait_s", "float",
                     tip="v8.17：杀完怪还显示战斗中但没掉血 → 等这么久再按 x 找怪（掉血马上找）；战斗中一律不拾取/剥皮")
         self._field(f, r + 18, "战后治疗（每次战斗结束）", "heal", "post_enabled", "bool",
-                    tip="v8.27：血量 < 生命之触线 → 生命之触（读完再打）；< 回春术线 → 回春术；更高不治疗；蓝不够变身就跳过")
-        self._field(f, r + 19, "战后放回春术", "heal", "post_rejuv_enabled", "bool",
-                    tip="关 = 战后只在血量 < 生命之触线(默认70%)时放生命之触，高于就直接继续打；战斗中紧急治疗不受影响")
-        self._field(f, r + 21, "回春术冷却：几秒内不重复放(秒)", "heal", "rejuv_no_repeat_s", "float",
-                    tip="v8.30：上次回春术放完不到这么多秒（身上还有）→ 战后不再放、也不变形；默认 12，0 = 不限制")
+                    tip="v8.54：血量 < 生命之触线 → 生命之触（读完再打）；更高不治疗（战后回春术已删掉）；蓝不够变身就跳过")
         self._field(f, r + 20, "低于多少用生命之触(%)", "heal", "post_ht_below_pct", "int",
                     tip="v8.47 默认 60；开了战后治疗，上面的“脱战低于多少才回血/回血最长”就不用了")
-        self._field(f, r + 25, "低于多少用回春术(%)（v8.47）", "heal", "post_rejuv_below_pct", "int",
-                    tip="战后血量在 生命之触线 ~ 这个 之间放回春术；≥ 这个就不治疗（默认 85）")
         self._field(f, r + 17, "移动方式", "move", "mode", choices=["stationary_tab", "click"],
                     tip="click=点击移动走过去（你现在用的）/ stationary_tab=原地 + Tab（选 click 时隐藏“原地打怪”页）")
         ttk.Label(f, text="—— 自动补 buff（需要插件 v0.8）——").grid(row=r + 1, column=3, columnspan=2, sticky="w", padx=8)
@@ -455,7 +448,6 @@ class App(tk.Tk):
         self._field(g, 5, "自动测变身耗蓝", "heal", "reserve_learn", "bool", col=3, tip="实测比上面高 → 用 实测+2")
         self._field(g, 6, "治疗之触耗蓝约(%)", "heal", "heal_cost_pct", "float", col=3, tip="初始估计，实测后自动更新（默认 20）")
         self._field(g, 7, "buff 耗蓝约(%)", "heal", "buff_cost_pct", "float", col=3, tip="初始估计，实测后自动更新（默认 10）")
-        self._field(g, 8, "回春术耗蓝约(%)", "heal", "rejuv_cost_pct", "float", col=3, tip="v8.27 初始估计，实测后自动更新（默认 12）")
         self._field(g, 9, "变身余量(%)（v8.42）", "heal", "reserve_margin_pct", "float", col=3,
                     tip="治疗前预计“治疗后法力”要 ≥ 变身预留 + 这个余量才放，保证治完能变回猎豹（默认 3）")
         self._field(g, 10, "先回蓝再开怪（v8.46）", "heal", "mana_rest_enabled", "bool", col=3,
@@ -697,6 +689,8 @@ class App(tk.Tk):
             ("enabled", "Tab 找怪", "bool", "默认开：每次找怪先按 Tab"),
             ("while_moving", "移动中也按 Tab", "bool", "默认开：巡逻/回中心时定时按（朝红名走见下一项）；跑尸、战斗、拾取、回血时不按"),
             ("move_interval_s", "移动中每隔几秒按一次", "float", "默认 1.8（随机 ±0.4）"),
+            ("miss_limit", "停着连续几次没选到 → 暂停 Tab", "int", "v8.54 默认 3；0 = 不暂停"),
+            ("miss_backoff_s", "暂停 Tab 多久(秒)", "float", "v8.54 默认 30：靠转视角找标记/红名，找到怪马上恢复"),
             ("far_walk_tab", "朝远处红名走时也按 Tab", "bool", "v8.50 默认关：一出标记就点，不用 Tab 打断"),
             ("skip_tapped", "不打灰名（被别人抢了）", "bool", "默认开"),
             ("skip_elite", "不打精英", "bool", "默认开（含稀有精英/世界首领；稀有非精英照打）"),
@@ -766,6 +760,7 @@ class App(tk.Tk):
             ("area", "home_on_start", "开始时把当前位置当中心", "bool", "关掉 = 用下面保存的中心坐标"),
             ("area", "leash_ratio", "追怪最远(半径×)", "float", "点击模式：还没开打就追出 半径×此值 → 放弃这只，走回中心"),
             ("area", "auto_switch_center", "就近切换中心（v8.46）", "bool", "出了当前中心的范围、但在另一个中心范围里 → 直接换过去，不走回去"),
+            ("area", "center_skip_fails", "中心连续几次去不了就跳过", "int", "v8.54 默认 2（中间到过一次就重新数）；0 = 不跳；至少留 1 个；重开 WowGrinder 恢复"),
             ("scan", "spin_home", "转一圈没找到怪就回中心", "bool", "v8.19：找怪转视角累计转满下面的度数 → 走回范围中心"),
             ("scan", "spin_deg", "转多少度算一圈", "float", "默认 360"),
             ("scan", "spin_near_ratio", "已在中心附近(半径×)", "float", "在这个距离内不走，等一会儿再找（默认 0.2）"),

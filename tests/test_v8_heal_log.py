@@ -2627,7 +2627,7 @@ class TestV827PostFightHeal(Base):
     def setUp(self):
         super().setUp()
         self.cfg["cat"]["combat_form"] = "猎豹"
-        self.k.update(cat_form="z", cancel_form="v", healing_touch="e", rejuvenation="g", interact="`", loot="`",
+        self.k.update(cat_form="z", cancel_form="v", healing_touch="e", interact="`", loot="`",
                       cat_builder="1", cat_finisher="2", target_attacker="x")
         self.cfg["buffs"]["enabled"] = False
         self.cfg["loot"]["enabled"] = False
@@ -2668,23 +2668,11 @@ class TestV827PostFightHeal(Base):
         self.assertTrue(any("生命之触读完" in m for m in self.logs))
         self.assertNotIn("`", self.keys())                    # 战斗中绝不按互动键
 
-    def test_mid_hp_rejuvenation_then_cat(self):
+    def test_mid_hp_no_heal(self):                         # v8.54：战后回春术删掉了 → 生命之触线以上不治疗、不变形
         ks = self.end_fight(85)
-        self.assertIn("g", ks)
-        self.assertNotIn("e", ks)
-        self.assertNotIn("v", ks)
-        self.inp.history.clear()
-        self.clock.t += 0.4
-        self.g.tick(obs(hp=86, kind="none", form="caster", mana=70, casting=False))
-        self.assertNotIn("z", self.keys())                    # 公共冷却还没过
-        self.clock.t += 1.3
-        self.g.tick(obs(hp=88, kind="none", form="caster", mana=70, casting=False))
-        self.assertIn("z", self.keys())
-        self.assertTrue(any("回春术放好" in m for m in self.logs))
-        for _ in range(5):                                    # 一次战斗只治疗一次
-            self.clock.t += 0.5
-            self.g.tick(obs(hp=90, kind="none", form="cat", mana=45))
-        self.assertNotIn("g", self.keys())
+        self.assertFalse(set(ks) & {"e", "g", "v"})
+        self.assertNotEqual(self.g.state, State.RESTING)
+        self.assertTrue(any("≥ 生命之触线 70% → 不治疗，直接继续打" in m for m in self.logs))
 
     def test_full_hp_no_heal(self):
         ks = self.end_fight(100)
@@ -2696,9 +2684,6 @@ class TestV827PostFightHeal(Base):
         ks = self.end_fight(60, mana=40)
         self.assertFalse(set(ks) & {"e", "g", "v"})
         self.assertTrue(any("跳过生命之触，保住变猎豹的法力" in m for m in self.logs))
-        ks = TestV827PostFightHeal.end_fight(self, 85, mana=35)
-        self.assertFalse(set(ks) & {"e", "g"})
-        self.assertTrue(any("跳过回春术" in m for m in self.logs))
 
     def test_threshold_configurable(self):
         self.cfg["heal"]["post_ht_below_pct"] = 90
@@ -2718,10 +2703,10 @@ class TestV827Keys(unittest.TestCase):
         from bot.config import key_conflicts, norm_key
         loaded = copy.deepcopy(DEFAULT_CONFIG)
         loaded["keys"].update(interact="·", loot="g", healing_touch="e", cat_finisher="1")
-        loaded["keys"].pop("rejuvenation")
         loaded["meta"]["migrations"] = []
         cfg = _migrate(_merge(DEFAULT_CONFIG, loaded), loaded)
-        self.assertEqual((cfg["keys"]["interact"], cfg["keys"]["loot"], cfg["keys"]["rejuvenation"]), ("`", "`", "g"))
+        self.assertEqual((cfg["keys"]["interact"], cfg["keys"]["loot"]), ("`", "`"))
+        self.assertNotIn("rejuvenation", cfg["keys"])                  # v8.54 战后回春术删掉了
         self.assertEqual(cfg["keys"]["healing_touch"], "e")
         self.assertEqual(cfg["keys"]["cat_finisher"], "1")
         self.assertTrue(cfg["heal"]["post_enabled"])
@@ -2730,8 +2715,8 @@ class TestV827Keys(unittest.TestCase):
         again = _migrate(_merge(DEFAULT_CONFIG, cfg), cfg)    # 只改一次：之后用户自己改的键不再被改
         self.assertEqual(again["keys"]["interact"], "`")
         self.assertEqual([norm_key(x) for x in ("·", "Ｇ", "ｅ", "F7", "Tab", "`")], ["`", "g", "e", "f7", "tab", "`"])
-        cfg["keys"]["thorns"] = "g"
-        self.assertTrue(any("回春术" in c and "荆棘术" in c for c in key_conflicts(cfg)))
+        cfg["keys"]["thorns"] = "`"
+        self.assertTrue(any("与目标互动" in c and "荆棘术" in c for c in key_conflicts(cfg)))
 
     def test_press_middle_dot_sends_backtick(self):
         import threading

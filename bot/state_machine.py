@@ -229,7 +229,6 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.bear_belief = True          # 截图模式下不知道形态，只能自己记
         self.rest_start = now
         self.rest_next_cast = -1e9
-        self.rejuv_time = -1e9           # v8.30：上次战后回春术放出来的时间（N 秒内不重复放）
         self.post_healed = False         # v8.30：这场战斗已经战后治疗过（真正脱战时不再补一次）
         self.last_obs = None
         self._area_warned = ""
@@ -252,6 +251,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         # v8.23 多中心巡逻：centers = [[x, y, map_id], ...]，1→2→3→2→1 来回走（v8.33）；home = 当前要去/所在的中心
         self.centers = [tuple(c[:3]) if len(c) >= 3 else (c[0], c[1], 0) for c in (a.get("centers") or []) if len(c) >= 2]
         self.ci = 0                    # 当前中心序号（0 开始）
+        self.center_fails = {}         # v8.54：中心序号 → 连续去不了几次（到过一次就清零）
+        self.center_skip = set()       # v8.54：这次运行跳过的中心序号
         self.cdir = 1                  # v8.33 来回走的方向：+1 = 编号变大，-1 = 编号变小（1→2→3→2→1→2…）
         self.return_block_until = -1e9 # v8.33 回中心卡住（只有 1 个中心）→ 这段时间不再走回去，就地找怪
         self.near_death_noted = False  # v8.33 这场战斗已经写过“血量很危险，继续打”
@@ -775,7 +776,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                 d = -d
                 j = i + d
             i = j
-            if i == self.ci:
+            if i == self.ci or i in getattr(self, "center_skip", ()):
                 continue
             c = self.centers[i]
             if self._same_map(c, obs.map_id):
@@ -1030,10 +1031,13 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         """要不要战后回血。v8：刚杀完怪 post_fight_grace_s 秒内“战斗中”是残留状态，只要没挨打照样回血。"""
         h = self.cfg["heal"]
         if self._post_on():
-            # v8.27：每次战斗结束治疗一次（< 70% 生命之触 / 70-99% 回春术 / 满血不治疗）
-            if not getattr(self, "post_due", False) or obs.player_hp >= self._post_skip_line() or obs.player_hp <= 0:
+            # v8.27：每次战斗结束治疗一次；v8.54：只在血量 < 生命之触线时放生命之触（战后回春术删掉了）
+            if not getattr(self, "post_due", False) or obs.player_hp <= 0:
                 return False
-            if self._rejuv_cd_skip(obs):
+            if obs.player_hp >= self._post_skip_line():
+                self.post_due = False
+                self.post_healed = True
+                self.log(f"🩹 战后：血量 {obs.player_hp:.0f}% ≥ 生命之触线 {self._post_skip_line():.0f}% → 不治疗，直接继续打")
                 return False
         else:
             if obs.player_hp >= self._rest_below():
@@ -1065,8 +1069,6 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             return max(self.heal_costs[-3:])          # v8.42：最近 3 次实测里最贵的那次（保守）
         if kind in self.mana_cost:
             return self.mana_cost[kind]
-        if kind == "rejuv":
-            return float(h.get("rejuv_cost_pct", 12) or 0)
         return float(h.get("heal_cost_pct" if kind == "heal" else "buff_cost_pct", 20 if kind == "heal" else 10) or 0)
 
     def _mana_short(self, obs, kind) -> str | None:
@@ -1076,11 +1078,11 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         if r <= 0 or mana is None or mana <= 0:
             return None
         c = self._cost(kind)
-        margin = float(self.cfg["heal"].get("reserve_margin_pct", 3) or 0) if kind in ("heal", "rejuv") else 0.0  # v8.42
-        pend = self._inflight_cost(obs) if kind in ("heal", "rejuv") else 0.0
+        margin = float(self.cfg["heal"].get("reserve_margin_pct", 3) or 0) if kind == "heal" else 0.0  # v8.42
+        pend = self._inflight_cost(obs) if kind == "heal" else 0.0
         after = mana - pend - c
         if after < r + margin:
-            name = {"heal": "治疗之触", "rejuv": "回春术"}.get(kind, "buff")
+            name = {"heal": "治疗之触"}.get(kind, "buff")
             extra = f"，上一个治疗之触还在读、约 {pend:.0f}% 还没扣" if pend else ""
             return (f"预计{name}后法力 {after:.0f}%（现在 {mana:.0f}% − {name}约 {c:.0f}%{extra}）"
                     f" < 变{self._cform_cn()}需要 {r + margin:.0f}%（预留 {r:.0f}% + 余量 {margin:.0f}%）")
@@ -1148,7 +1150,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             if kind == "heal":
                 self.heal_costs = (self.heal_costs + [drop])[-5:]
             if old is None or abs(old - drop) >= 3:
-                self.dlog(f"[法力] 实测{ {'heal': '治疗之触', 'rejuv': '回春术'}.get(kind, 'buff') }耗蓝约 {drop:.0f}%")
+                self.dlog(f"[法力] 实测{ {'heal': '治疗之触'}.get(kind, 'buff') }耗蓝约 {drop:.0f}%")
 
     def _rest_below(self) -> float:
         """v8.2：低于这条线才开始脱战回血（以前用“回血到 90%”当开始线 → 每杀一只都变人形）。"""
@@ -1225,6 +1227,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             return
         if self._red_track(obs, now) and self.far is not None:   # v8.53：转身/走路时不动的红名 = 界面
             self._far_end("那个“红名”是界面", skip=False)
+        if obs.in_combat and (getattr(self, "ts_miss", 0) or getattr(self, "ts_backoff", False)):
+            self._ts_found("进入战斗")      # v8.54：打上怪了 → Tab 连续没选到清零/暂停恢复
 
         # 1) 死亡检测
         if obs.source == "addon":
@@ -2713,6 +2717,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         没有（只有 1 个中心 / 都试过一轮）→ 就地找怪，60 秒内不再走回中心。"""
         self._stop_walk()
         self.patrol_skips = getattr(self, "patrol_skips", 0) + 1
+        self._center_fail(obs, self.ci)
         nxt = self._next_center(obs) if self.patrol_skips <= max(1, len(self.centers)) else None
         old = self.ci
         where = f"去中心 #{old + 1}" if (self.travel or len(self.centers) > 1) else "回中心"
@@ -2732,6 +2737,27 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self._spin_reset()
         self.log(f"🚩 {where}{' ' if why.startswith('的') else '：'}{why}，没有别的中心可去 → 不停止，就地找怪，60 秒内不再走回中心")
         return
+
+    def _center_fail(self, obs, i):
+        """v8.54：去中心 #i 又失败了一次（卡住 3 次/超时）。连续 center_skip_fails 次（中间没到过）→ 这次运行跳过它；
+        同地图至少留 1 个没跳过的中心。"""
+        need = int(self.cfg.get("area", {}).get("center_skip_fails", 2) or 0)
+        if need <= 0 or len(self.centers) < 2 or not (0 <= i < len(self.centers)):
+            return
+        if not hasattr(self, "center_fails"):
+            self.center_fails, self.center_skip = {}, set()
+        self.center_fails[i] = self.center_fails.get(i, 0) + 1
+        n = self.center_fails[i]
+        if n < need or i in self.center_skip:
+            return
+        left = [j for j, c in enumerate(self.centers)
+                if j != i and j not in self.center_skip and self._same_map(c, obs.map_id)]
+        if not left:
+            self._warn(f"cskip{i}", f"🚩 中心 #{i + 1} 已经连续 {n} 次去不了，但它是最后一个能用的中心 → 不跳过", 60)
+            return
+        self.center_skip.add(i)
+        self.log(f"🚩 中心 #{i + 1} 已经连续 {n} 次去不了（路上卡住/超时）→ 这次运行跳过它，"
+                 f"还剩 {len(left)} 个中心（#{', #'.join(str(j + 1) for j in left)}）；重开 WowGrinder 恢复")
 
     def _return(self, obs, now):
         a, k = self.cfg["area"], self.cfg["keys"]
@@ -2753,6 +2779,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         d = distance(obs.pos, center)
         if d <= float(a["radius"]) * float(a.get("arrive_ratio", 0.5)):
             self._stop_walk()
+            if hasattr(self, "center_fails"):
+                self.center_fails.pop(self.ci, None)      # v8.54：到过了 → 连续失败清零
             if self.travel:
                 self.patrol_skips = 0
                 self.log(f"🚩 到达中心 #{self.ci + 1}/{len(self.centers)}（距离 {d:.2f}）→ 在这里找怪")
@@ -3280,55 +3308,25 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         return True
 
     def _post_skip_line(self) -> float:
-        """v8.47（t190u）：战后血量 ≥ 这个 → 不治疗（默认 85；以前只有满血不治疗）。"""
+        """v8.54（t220u）：战后血量 ≥ 生命之触线 → 不治疗（战后回春术删掉了）。"""
         try:
-            v = float(self.cfg["heal"].get("post_rejuv_below_pct", 85))
+            v = float(self.cfg["heal"].get("post_ht_below_pct", 60))
         except (TypeError, ValueError):
-            v = 85.0
+            v = 60.0
         return min(99.5, v) if v > 0 else 99.5
 
     def _post_on(self) -> bool:
         return bool(self.cfg["heal"].get("post_enabled", True))
 
-    def _rejuv_cd_left(self) -> float:
-        cd = float(self.cfg["heal"].get("rejuv_no_repeat_s", 12) or 0)
-        return cd - (self.clock() - self.rejuv_time) if cd > 0 else 0.0
-
-    def _rejuv_cd_skip(self, obs) -> bool:
-        """v8.30：这次该放回春术，但离上次回春术不到 N 秒（身上多半还有）→ 不放，也不变形。"""
-        if obs.player_hp < float(self.cfg["heal"].get("post_ht_below_pct", 70)):
-            return False                         # 生命之触不受影响
-        if not self.cfg["heal"].get("post_rejuv_enabled", True):
-            # v8.36：关了“战后放回春术” → 不按回春术键、不变形，直接继续打（这场战斗只写一次）
-            self.post_due = False
-            self.post_healed = True
-            self.log(f"🩹 战后治疗：血量 {obs.player_hp:.0f}% ≥ 生命之触线 "
-                     f"{float(self.cfg['heal'].get('post_ht_below_pct', 70)):.0f}%，“战后放回春术”关了 → 不治疗，直接继续打")
-            return True
-        left = self._rejuv_cd_left()
-        if left <= 0:
-            return False
-        self.post_due = False
-        self.post_healed = True
-        self.log(f"🩹 战后治疗：血量 {obs.player_hp:.0f}%，但 {self._rejuv_cd_left_txt(left)} → 不重复放回春术，也不变形")
-        return True
-
-    def _rejuv_cd_left_txt(self, left) -> str:
-        cd = float(self.cfg["heal"].get("rejuv_no_repeat_s", 12) or 0)
-        return f"离上次回春术才 {cd - left:.1f} 秒（{cd:.0f} 秒内不重复放）"
-
     def _start_post_heal(self, obs, why):
         h, k = self.cfg["heal"], self.cfg["keys"]
-        if self._rejuv_cd_skip(obs):
-            self.state = State.SEARCHING
-            return
-        line = float(h.get("post_ht_below_pct", 70))
+        line = float(h.get("post_ht_below_pct", 60))
         hp = obs.player_hp
         self.post_due = False
         self.post_healed = True                  # v8.30：这场战斗已经治疗（真正脱战时不再补）
-        self.post_kind = "heal" if hp < line else "rejuv"
-        self.post_key = (k.get("healing_touch") if self.post_kind == "heal" else k.get("rejuvenation")) or ""
-        self.post_name = "生命之触" if self.post_kind == "heal" else "回春术"
+        self.post_kind = "heal"                  # v8.54：战后只用生命之触
+        self.post_key = k.get("healing_touch") or ""
+        self.post_name = "生命之触"
         self.post_phase, self.post_presses, self.post_seen_cast = "start", 0, False
         self.post_t0 = self.post_last_press = self.clock()
         self.post_hp0, self.post_mana0, self.post_hit_noted = hp, obs.mana, False
@@ -3395,26 +3393,6 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                                                      f"（形态={obs.form}，法力={obs.mana}，报错={obs.error}）→ 不治疗了")
                 self._post_press(obs, now)
             return
-        # 回春术：瞬发。看到变成人形或法力掉了 = 放出来了；等公共冷却（1.5 秒）再变回去
-        ok = obs.form == "caster" or (self.post_mana0 is not None and obs.mana is not None
-                                      and self.post_mana0 - obs.mana >= 3)
-        if ok and self.post_phase == "wait":
-            self.post_phase = "gcd"
-            self.post_ok_t = now
-            self.rejuv_time = self.post_last_press     # v8.30：记下回春术放出来的时间
-        if self.post_phase == "gcd":
-            if not getattr(self, "post_learned", False) and obs.form == "caster":
-                self.post_learned = True
-                self._learn_cost("rejuv", self.post_mana0, obs, lo=3, hi=40)
-            if now - self.post_last_press >= 1.5:
-                return self._post_done(obs, now, f"🩹 回春术放好（血量 {self.post_hp0:.0f}% → {obs.player_hp:.0f}%）→ "
-                                                 f"马上变回{self._cform_cn()}继续")
-            return
-        if now - self.post_last_press >= 1.0:
-            if self.post_presses >= 3:
-                return self._post_done(obs, now, f"⚠️ 战后治疗：按了 {self.post_presses} 次「{key}」回春术好像没放出来"
-                                                 f"（形态={obs.form}，法力={obs.mana}，报错={obs.error}）→ 不治疗了")
-            self._post_press(obs, now)
 
     def _post_press(self, obs, now):
         self.post_presses += 1

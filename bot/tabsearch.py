@@ -28,6 +28,8 @@ TS_DEFAULTS = {
     "while_moving": True,     # GUI“移动中也按 Tab”
     "move_interval_s": 1.8,   # 移动中每隔几秒按一次
     "move_jitter_s": 0.4,     # 随机 ±
+    "miss_limit": 3,          # v8.54：停着找怪连续这么多次没选到怪 → 暂停 Tab（0 = 不暂停）
+    "miss_backoff_s": 30.0,   # 暂停多久（找到怪马上恢复）
 }
 
 
@@ -47,6 +49,8 @@ class TabSearchMixin:
         self.ts_accept_t = -1e9
         self.ts_old_noted = False
         self.ts_last_press = -1e9
+        self.ts_miss = 0             # v8.54：停着找怪连续几次 Tab 没选到怪
+        self.ts_backoff = False      # v8.54：正在因为连续没选到而暂停 Tab
 
     def _ts_key(self) -> str:
         return (self.cfg["keys"].get("target") or "tab").strip() or "tab"
@@ -154,8 +158,18 @@ class TabSearchMixin:
         self.ts_last_press = now
 
     # ---------------------------------------------------------------- 找怪（停着）
+    def _ts_found(self, why=""):
+        """v8.54：找到怪了（Tab 选中合格的 / 进入战斗）→ 连续没选到清零，暂停中的 Tab 马上恢复。"""
+        if getattr(self, "ts_backoff", False):
+            self.ts_backoff = False
+            self.ts_cd_until = -1e9
+            self.log(f"🔎 找到怪了{('（' + why + '）') if why else ''} → Tab 恢复")
+        self.ts_miss = 0
+
     def _ts_search(self, obs, now, dead_pct) -> bool:
         """_search 里没目标时调用：返回 True = 这一帧按了 Tab / 在等结果 / 刚清掉不合格目标。"""
+        if obs.in_combat:
+            self._ts_found("进入战斗")
         if obs.in_combat or not self._ts_on(obs):
             self.ts_pend = None
             return False
@@ -187,10 +201,20 @@ class TabSearchMixin:
                 return True
             self.log(f"🔎 Tab 没选到怪（第 {self.ts_n} 次）→ 不转身，看屏幕标记/远处姓名板")
             self._ts_end_cycle(now)
+            self.ts_miss = getattr(self, "ts_miss", 0) + 1
+            lim = int(c.get("miss_limit", 3) or 0)
+            if lim > 0 and self.ts_miss >= lim:
+                bo = float(c.get("miss_backoff_s", 30))
+                self.ts_cd_until = now + bo
+                self.ts_backoff = True
+                self.log(f"🔎 Tab 连续 {self.ts_miss} 次没选到怪 → {bo:.0f} 秒内停着找怪不按 Tab，"
+                         "靠转视角找标记/红名（找到怪马上恢复）")
+                self.ts_miss = 0
             return False
         why = self._ts_reject(obs, dead_pct)
         if why is None:
             self.log(f"🔎 Tab 选中能打的怪（{self._ts_desc(obs)}）→ 过去打")
+            self._ts_found()
             self.ts_pend = None
             self.ts_n = 0
             self.ts_accept_t = now
@@ -234,6 +258,7 @@ class TabSearchMixin:
             self.ts_pend = None
             if why is None:
                 self.log(f"🔎 {where}：Tab 选中能打的怪（{self._ts_desc(obs)}）→ 停下过去打")
+                self._ts_found()
                 self.ts_accept_t = now
                 self.ts_n = 0
                 if getattr(self, "far", None) is not None:

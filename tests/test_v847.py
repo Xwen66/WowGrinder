@@ -25,7 +25,7 @@ class V847(Base):
     def setUp(self):
         super().setUp()
         h, d = self.cfg["heal"], DEFAULT_CONFIG["heal"]
-        for k in ("post_ht_below_pct", "post_rejuv_below_pct", "pull_min_mana_pct", "post_rejuv_enabled"):
+        for k in ("post_ht_below_pct", "pull_min_mana_pct"):
             h[k] = d[k]                                        # v8.47 新默认
         self.cfg["multi_bear"] = copy.deepcopy(DEFAULT_CONFIG["multi_bear"])
         self.cfg["cat"]["combat_form"] = "猎豹"
@@ -37,8 +37,9 @@ class Defaults(unittest.TestCase):
     def test_defaults(self):
         h = DEFAULT_CONFIG["heal"]
         self.assertFalse(DEFAULT_CONFIG["multi_bear"]["enabled"])
-        self.assertEqual((h["post_ht_below_pct"], h["post_rejuv_below_pct"], h["pull_min_mana_pct"],
-                          h["reserve_learn_cap_pct"], h["post_rejuv_enabled"], h["post_enabled"]), (60, 85, 50, 8, True, True))
+        self.assertEqual((h["post_ht_below_pct"], h["pull_min_mana_pct"],
+                          h["reserve_learn_cap_pct"], h["post_enabled"]), (60, 50, 8, True))
+        self.assertNotIn("post_rejuv_below_pct", h)                     # v8.54 战后回春术删掉了
 
 
 # ---------------------------------------------------------------- A/B. 不变熊，按猎豹预留
@@ -117,12 +118,12 @@ class PostHeal(Base):
     def setUp(self):
         super().setUp()
         self.cfg["cat"]["combat_form"] = "猎豹"
-        self.k.update(cat_form="z", cancel_form="v", healing_touch="e", rejuvenation="g", interact="`", loot="`",
+        self.k.update(cat_form="z", cancel_form="v", healing_touch="e", interact="`", loot="`",
                       cat_builder="1", cat_finisher="2", target_attacker="x")
         self.cfg["buffs"]["enabled"] = False
         self.cfg["loot"]["enabled"] = False
         h, d = self.cfg["heal"], DEFAULT_CONFIG["heal"]
-        for k in ("post_ht_below_pct", "post_rejuv_below_pct", "pull_min_mana_pct", "post_rejuv_enabled"):
+        for k in ("post_ht_below_pct", "pull_min_mana_pct"):
             h[k] = d[k]
 
     def test_below_60_healing_touch(self):
@@ -130,10 +131,10 @@ class PostHeal(Base):
         self.assertIn("e", ks)
         self.assertNotIn("g", ks)
 
-    def test_60_to_85_rejuv(self):
+    def test_60_and_up_no_heal(self):                     # v8.54：战后回春术删掉了 → ≥ 生命之触线不治疗
         ks = self.end_fight(70)
-        self.assertIn("g", ks)
-        self.assertNotIn("e", ks)
+        self.assertFalse(set(ks) & {"e", "g", "v"})
+        self.assertNotEqual(self.g.state, State.RESTING)
 
     def test_85_and_up_no_heal(self):
         ks = self.end_fight(88)
@@ -141,9 +142,10 @@ class PostHeal(Base):
         self.assertNotEqual(self.g.state, State.RESTING)
 
     def test_line_configurable(self):
-        self.cfg["heal"]["post_rejuv_below_pct"] = 95
+        self.cfg["heal"]["post_ht_below_pct"] = 95
         ks = self.end_fight(88)
-        self.assertIn("g", ks)
+        self.assertIn("e", ks)
+        self.assertNotIn("g", ks)
 
 
 # ---------------------------------------------------------------- F. 法力 ≥ 50% 才开怪
@@ -226,7 +228,7 @@ class Strings(unittest.TestCase):
         with open(os.path.join(ROOT, "gui", "app.py"), encoding="utf-8") as f:
             app = f.read()
         self.assertTrue(re.search(r"熊德自动打怪 v8\.(4\d|[5-9]\d)", app))      # v8.48 起标题版本在新测试里查
-        self.assertIn('"post_rejuv_below_pct"', app)
+        self.assertNotIn('"post_rejuv_below_pct"', app)          # v8.54 删掉了
         self.assertIn('"pull_min_mana_pct"', app)
         with open(os.path.join(ROOT, "README_中文.md"), encoding="utf-8") as f:
             rd = f.read()
