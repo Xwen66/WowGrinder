@@ -148,7 +148,7 @@ class Overlay(unittest.TestCase):
 
 class Strings(unittest.TestCase):
     def test_versions(self):
-        self.assertIn("## Version: 0.18.0", _rd(os.path.join(ADDON, "BotStatus.toc")))
+        self.assertRegex(_rd(os.path.join(ADDON, "BotStatus.toc")), r"## Version: 0\.(1[89]|[2-9]\d)\.0")
         self.assertIn("v0.18", _rd(os.path.join(ADDON, "BotStatus.lua")))
         src = _rd(os.path.join(ADDON, "MapOverlay.lua"))
         self.assertNotIn("+ 500", src)

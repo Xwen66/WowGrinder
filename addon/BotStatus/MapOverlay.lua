@@ -4,7 +4,8 @@ BotStatus v0.17 + v0.18（v0.18：修“什么都不显示”—— 图层抬到
   · 跑尸路线（蓝点 + 连线，从墓地开始）
   · 修理路线（绿点 + 连线）和修理商点（紫色大点“修”）
 数据在 MapData.lua（WowGrinder 每次保存/录点时写入），改完要 /reload。
-只画大地图，不画小地图。地图右上角有“WG 图层”按钮可以显示/隐藏（记在 BotStatusMapDB）。
+只画大地图；v0.19 起小地图上也画中心和半径圈（另一个文件，和这里共用开关：M.after / M.statusExtra）。
+地图右上角有“WG 图层”按钮可以显示/隐藏（记在 BotStatusMapDB，大小地图一起开关）。
 坐标：WowGrinder 存的是 0-100 的地图坐标 + uiMapID；点所在地图和大地图正在显示的地图不一样时，
 用 C_Map.GetWorldPosFromMapPos / GetMapPosFromWorldPos 换算（换算不了就不画这个点）。
 ]]
@@ -197,6 +198,7 @@ function M.Refresh()
     return tostring(WorldMapFrame:GetMapID()) .. ":" .. tostring(M.frame and M.frame:GetWidth()) .. ":" .. tostring(canvasScale())
   end)
   M.lastKey = okk and key or nil
+  for _, fn in ipairs(M.after or {}) do pcall(fn) end     -- v0.19：小地图图层一起刷新（共用开关）
 end
 
 local function count(t) return type(t) == "table" and #t or 0 end
@@ -204,7 +206,7 @@ local function count(t) return type(t) == "table" and #t or 0 end
 function M.Status()
   local D = BotStatusMapData
   local p = function(s) print("|cff40ff40[WG 图层]|r " .. s) end
-  p("插件 v0.18；图层：" .. (hidden() and "关" or "开") .. "；初始化：" .. (M.frame and "成功" or ("没有（" .. tostring(M.setupErr or "找不到大地图") .. "）")))
+  p("插件 v0.19；图层：" .. (hidden() and "关" or "开") .. "；初始化：" .. (M.frame and "成功" or ("没有（" .. tostring(M.setupErr or "找不到大地图") .. "）")))
   if type(D) == "table" then
     p(string.format("数据：%s 写入；中心 %d 个（半径 %s）、跑尸 %d 点、修理 %d 点、修理商 #%s",
       tostring(D.written), count(D.centers), tostring(D.radius), count(D.corpse), count(D.repair), tostring(D.vendor)))
@@ -223,6 +225,10 @@ function M.Status()
       M.drawn or 0, M.nl or 0, (M.why and M.why ~= "") and ("；" .. M.why) or ""))
   end
   if M.err then p("|cffff4040出错：|r" .. M.err) end
+  for _, fn in ipairs(M.statusExtra or {}) do
+    local ok, s = pcall(fn)
+    if ok and s then p(s) end
+  end
   if not shown then p("先按 M 打开大地图再输入 /wgmap，结果更准") end
 end
 local function updateButton()
@@ -256,7 +262,7 @@ function M.Setup()
   b:SetScript("OnEnter", function(self)
     if not GameTooltip then return end
     GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-    GameTooltip:AddLine("WowGrinder 图层")
+    GameTooltip:AddLine("WowGrinder 图层（大地图 + 小地图）")
     local D = BotStatusMapData
     if type(D) ~= "table" then
       GameTooltip:AddLine("还没有地图数据：在 WowGrinder 里点一次“保存设置”，然后 /reload", 1, 0.4, 0.4, true)
@@ -309,7 +315,7 @@ ev:SetScript("OnEvent", function(_, event, name)
   end
   if event == "PLAYER_LOGIN" then
     local D = BotStatusMapData
-    print(string.format("|cff40ff40BotStatus 大地图图层|r：%s（输入 /wgmap 看状态，/wgmap on|off 开关）",
+    print(string.format("|cff40ff40BotStatus 大地图/小地图图层|r：%s（输入 /wgmap 看状态，/wgmap on|off 开关）",
       type(D) == "table" and string.format("中心 %d 个、跑尸 %d 点、修理 %d 点（%s）", count(D.centers), count(D.corpse), count(D.repair), tostring(D.written))
       or "没有数据，在 WowGrinder 里点“保存设置”再 /reload"))
   end

@@ -2,6 +2,7 @@
 BotStatus：把角色状态画成屏幕左上角的纯色方块，给 WowGrinder（Python）截图读取。
 兼容《魔兽世界：无限》1.60.1（TOC 16001，带 Midnight 的"机密值/secret values"限制）。
 
+v0.19：给 WowGrinder v8.64：小地图上也画刷怪中心 + 半径圈（MinimapOverlay.lua），和大地图共用“WG 图层”开关。色块不变。
 v0.18：给 WowGrinder v8.61：大地图图层被区域底图盖住的问题修好（MapOverlay.lua）；/wgmap 打印诊断，/wgmap on|off 开关。
 v0.17：给 WowGrinder v8.60：大地图上画 刷怪中心/半径、跑尸路线、修理路线/修理商（MapOverlay.lua + MapData.lua），
       地图右上角“WG 图层”按钮显示/隐藏（也可以 /wgmap）。色块不变。

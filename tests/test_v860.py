@@ -294,7 +294,7 @@ class Strings(unittest.TestCase):
         self.assertRegex(toc, r"## Version: 0\.(1[7-9]|[2-9]\d)\.\d")
         self.assertIn("## SavedVariables: BotStatusMapDB", toc)
         files = [l.strip() for l in toc.splitlines() if l.strip() and not l.startswith("#")]
-        self.assertEqual(files, ["MapData.lua", "BotStatus.lua", "MapOverlay.lua"])
+        self.assertEqual(files[:3], ["MapData.lua", "BotStatus.lua", "MapOverlay.lua"])
         for f in files:
             self.assertTrue(os.path.isfile(os.path.join(ADDON, f)), f)
 
