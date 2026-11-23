@@ -375,7 +375,10 @@ DEFAULT_CONFIG: dict = {
                            [0.66, 0.64, 0.14, 0.14],  # 下中偏右：挪过去的目标框（目标死了名字是红的）
                            # v8.51：日志 11-21 02-05 点朝 (1210,1108) 走了 155 次、朝顶部红字报错 (1080,148) 走了 30 次
                            [0.51, 0.79, 0.10, 0.06],  # 下中：技能栏上面一点（2160×1350 上 x 1102-1318，y 1066-1147）
-                           [0.47, 0.102, 0.06, 0.016]],  # 顶部正中一条窄带：红字报错“能量值不足”等（x 1015-1145，y 138-159）
+                           [0.47, 0.102, 0.06, 0.016],   # 顶部正中一条窄带：红字报错“能量值不足”等（x 1015-1145，y 138-159）
+                           # v8.66：11-22 18:34 实拍：右上 buff 图标（红色牛头）在 x≈1652（小地图左边）被当成红名
+                           # （顶部红字报错不再加排除区：颜色比名字暗，严格判断已经筛掉，那里也常有远处真怪）
+                           [0.60, 0.0, 0.20, 0.06]],     # 右上：buff/debuff 图标一排（小地图左边，y < 81）
         # v8.50 找怪顺序：看到能打的标记 → 马上右键点；没有 → 朝红名走，一出标记马上点；都没有才按 Tab
         "plates_first": True,
         "far_click_frames": 1,        # 朝红名走时看到能点的标记几帧就停下点（v8.50：1 = 马上）
@@ -393,6 +396,22 @@ DEFAULT_CONFIG: dict = {
         "red_walk_bad_s": 120.0,      # 第 1 次认定：这么久内不再朝那里走
         "red_walk_hits": 2,           # 同一个位置认定这么多次 → 这次运行都不再看（1 = 第一次就永久）
         "far_turn_deg": 12.0,         # 名字偏离正前方超过这么多度 → 先转身
+        # v8.66（t249u 后 Simon 选的 1/2/3）：远处红名误判
+        # 1) 固定界面遮罩：人转身（≥ red_mask_turn_deg）前后，“红名”总在屏幕同一格 → 那一格是界面，永久不看（存到 red_ui_mask.json，
+        #    下次启动还记得）；转身/走路判定出的界面位置也一起存
+        "red_learn_mask": True,
+        "red_mask_turn_deg": 15.0,    # 两次取样之间至少转了这么多度（真怪的名字转 15° 会横着挪约 350 像素）
+        "red_mask_frac": 0.4,         # 一格在这么大比例的取样里都有“红名” → 界面
+        "red_mask_min_hits": 5,       # 而且至少出现过这么多次
+        # 2) 更严格的名字判断（朝它走之前就筛掉）：颜色要是纯红字、高度/宽度像一行字、有笔画
+        "red_strict": True,
+        "red_min_purity": 90,         # 红字像素平均 R-max(G,B)（名字 102-126；红土/红岩 36-60；顶部红字报错 72-84）
+        "red_min_mean_r": 150,        # 红字像素平均 R（名字 160-224）
+        "red_min_strokes": 1.0,       # 每 20 像素宽的笔画切换次数（字 ≈ 1.8-2.8；血条 < 0.5）
+        # 3) 范围外的红名不走：朝那个方向离中心半径边只剩不到 far_min_room_s 秒的路 → 不朝它走
+        #    （11-22 日志：走到怪出标记中位 4.8 秒，走到范围边停下中位 2.9 秒）
+        "red_in_area_only": True,
+        "far_min_room_s": 3.0,
     },
     "scan": {
         "tap_ms": 350,                # 每次按转向键的时长（v8.65：200 → 350ms ≈ 63°，转一步看得更多）
@@ -610,6 +629,18 @@ def _migrate(cfg: dict, loaded: dict) -> dict:
         if same:
             cfg["nameplate"]["red_ui_exclude"] = copy.deepcopy(DEFAULT_CONFIG["nameplate"]["red_ui_exclude"])
         done.append("red_ui_v851")
+    if "red_ui_v866" not in done:                    # v8.66：还是 v8.51 默认的界面排除区 → 加上右上 buff 图标一排
+        v851 = [[0.80, 0.0, 0.20, 0.25], [0.86, 0.0, 0.14, 1.0], [0.74, 0.68, 0.26, 0.32], [0.0, 0.70, 0.20, 0.30],
+                [0.79, 0.10, 0.21, 0.75], [0.0, 0.62, 0.36, 0.23], [0.66, 0.64, 0.14, 0.14],
+                [0.51, 0.79, 0.10, 0.06], [0.47, 0.102, 0.06, 0.016]]
+        cur = (cfg.get("nameplate", {}) or {}).get("red_ui_exclude")
+        try:
+            same = cur is None or [[float(v) for v in r] for r in cur] == v851
+        except (TypeError, ValueError):
+            same = False
+        if same:
+            cfg["nameplate"]["red_ui_exclude"] = copy.deepcopy(DEFAULT_CONFIG["nameplate"]["red_ui_exclude"])
+        done.append("red_ui_v866")
     if "red_walk_v853" not in done:                  # v8.53：v8.52 把“走路时红名不动=界面”关成 0 → 改回默认（只改一次）
         cfg["nameplate"]["red_walk_static_s"] = DEFAULT_CONFIG["nameplate"]["red_walk_static_s"]
         for k in ("use_addon_ui", "ui_margin_px"):              # v8.52 退回：去掉没用的键

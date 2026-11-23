@@ -1,7 +1,7 @@
 ## Interface: 16001, 120105
 ## Title: BotStatus
 ## Notes: 把角色状态编码成屏幕左上角的色块，供 WowGrinder 读取
-## Version: 0.19.0
+## Version: 0.20.0
 ## SavedVariables: BotStatusMapDB
 ## Author: WowGrinder
 MapData.lua

@@ -30,7 +30,7 @@ def _rd(p):
 class Defaults(unittest.TestCase):
     def test_defaults(self):
         n = DEFAULT_CONFIG["nameplate"]
-        self.assertEqual(n["red_ui_exclude"], V850 + [list(r) for r in NEW])
+        self.assertEqual(n["red_ui_exclude"][:9], V850 + [list(r) for r in NEW])   # v8.66 后面又加了 1 块
         self.assertEqual((n["red_walk_static_s"], n["red_walk_static_px"], n["red_walk_min_move"],
                           n["red_walk_bad_s"], n["red_walk_hits"]), (2.0, 5, 0.15, 120.0, 2))
 
@@ -46,7 +46,7 @@ class Defaults(unittest.TestCase):
         old = V850[:4]
         loaded = {"nameplate": {"red_ui_exclude": copy.deepcopy(old)}}
         cfg = _migrate(_merge(DEFAULT_CONFIG, loaded), loaded)
-        self.assertEqual(len(cfg["nameplate"]["red_ui_exclude"]), 9)
+        self.assertEqual(len(cfg["nameplate"]["red_ui_exclude"]), 10)   # v8.66：再加右上 buff 一排
 
     def test_custom_untouched_and_once(self):
         mine = V850 + [[0.1, 0.1, 0.1, 0.1]]

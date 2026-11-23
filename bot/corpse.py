@@ -61,8 +61,8 @@ class CorpseRunMixin:
         if getattr(obs, "death_info", False) and not getattr(self, "np_noted", False):
             self.np_noted = True
             nd = getattr(obs, "np_dist", None)
-            self.log(f"📏 插件 v0.12：姓名板显示距离 {nd if nd is not None else '读不到'} 码"
-                     "（插件已调到客户端允许的最大值；更远的怪只显示名字，程序朝红名走过去）")
+            self.log(f"📏 插件：姓名板显示距离 {nd if nd is not None else '读不到'} 码"
+                     "（v0.20 起插件只读不改；更远的怪只显示名字，程序朝红名走过去）")
         cr = getattr(self, "cr", None)
         if cr is None:
             if not (obs.player_dead and obs.source == "addon"):

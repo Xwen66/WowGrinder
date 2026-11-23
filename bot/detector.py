@@ -519,8 +519,13 @@ class Detector:
             except (TypeError, ValueError):
                 continue
             ex.append((int(W * fx), int(H * fy), int(round(W * fw)), int(round(H * fh))))
+        nc = self.cfg.get("nameplate", {})
+        strict = None
+        if nc.get("red_strict", True):                                         # v8.66：更严格的名字判断
+            strict = {"min_purity": nc.get("red_min_purity", 90), "min_mean_r": nc.get("red_min_mean_r", 150),
+                      "min_strokes": nc.get("red_min_strokes", 1.0)}
         try:
-            names = find_red_names(frame, None, exclude=ex)                    # v8.34：整个窗口
+            names = find_red_names(frame, None, exclude=ex, strict=strict)     # v8.34：整个窗口
         except Exception:  # noqa: BLE001
             return []
         pts = [(p["x"] + p["w"] / 2, p["y"] + p["h"] / 2) for p in plates]

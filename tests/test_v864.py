@@ -169,7 +169,7 @@ class Mini(unittest.TestCase):
         L, g, MM = self.load()
         g.SlashCmdList["BOTSTATUSMAP"]("")
         out = "\n".join(g.PRINTS.values())
-        self.assertIn("插件 v0.19", out)
+        self.assertRegex(out, r"插件 v0\.(19|[2-9]\d)")
         self.assertRegex(out, r"小地图：画了 2 个中心（线 \d+ 段）；视野半径 200 码（C_Minimap")
 
     def test_no_position_no_draw(self):
@@ -205,7 +205,7 @@ class Mini(unittest.TestCase):
 class Strings(unittest.TestCase):
     def test_files(self):
         toc = _rd(os.path.join(ADDON, "BotStatus.toc"))
-        self.assertIn("## Version: 0.19.0", toc)
+        self.assertRegex(toc, r"## Version: 0\.(19|[2-9]\d)\.0")
         files = [l.strip() for l in toc.splitlines() if l.strip() and not l.startswith("#")]
         self.assertEqual(files, ["MapData.lua", "BotStatus.lua", "MapOverlay.lua", "MinimapOverlay.lua"])
         src = _rd(os.path.join(ADDON, "MinimapOverlay.lua"))

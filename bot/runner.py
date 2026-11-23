@@ -85,6 +85,12 @@ class BotRunner:
         mon = cap.monitor
         self.grinder = g = Grinder(cfg, inp, log, screen_offset=(mon["left"], mon["top"]), dlog=dlog)
         g.on_home = self.on_home
+        if cfg.get("nameplate", {}).get("red_learn_mask", True):     # v8.66：固定界面遮罩（存在 WowGrinder 文件夹）
+            try:
+                from .config import BASE_DIR
+                log("🧱 " + g.redmask.attach(os.path.join(BASE_DIR, "red_ui_mask.json")))
+            except Exception as e:  # noqa: BLE001
+                dlog(f"界面遮罩读取失败：{type(e).__name__}: {e}")
         g.peek_plates = lambda: det.fresh_plates(cap.grab())   # v8.28：点前再截一张图确认标记还在原位
         g.on_centers = self.on_centers
         g.on_route = self.on_route
@@ -244,6 +250,7 @@ class BotRunner:
                     t_tick = time.monotonic()
                     g.tick(obs)
                     took = time.monotonic() - t_tick
+                    g.redmask.save()            # v8.66：学到新的界面格子才写文件
                     if g.state != last_state:
                         dlog(f"[状态] {last_state.value if last_state else '-'} → {g.state.value} | 血量 {obs.player_hp:.0f}%"
                              f"({obs.hp_source}) 法力 {obs.mana} 形态 {obs.form} 战斗 {obs.in_combat} 目标 {obs.target_kind} "
@@ -301,6 +308,10 @@ class BotRunner:
             dlog(traceback.format_exc())
         finally:
             inp.release_all()
+            try:
+                g.redmask.save()
+            except Exception:  # noqa: BLE001
+                pass
             if g.state != State.STOPPED:
                 g.state = State.STOPPED
             cap.close()

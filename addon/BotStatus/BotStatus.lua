@@ -2,6 +2,8 @@
 BotStatus：把角色状态画成屏幕左上角的纯色方块，给 WowGrinder（Python）截图读取。
 兼容《魔兽世界：无限》1.60.1（TOC 16001，带 Midnight 的"机密值/secret values"限制）。
 
+v0.20：给 WowGrinder v8.66：去掉“登录 / /reload 时调姓名板显示距离”—— 插件不再改任何游戏设置（CVar），
+      只读出当前值照旧报给程序（色块 35 的 R = 读到了）。色块不变。
 v0.19：给 WowGrinder v8.64：小地图上也画刷怪中心 + 半径圈（MinimapOverlay.lua），和大地图共用“WG 图层”开关。色块不变。
 v0.18：给 WowGrinder v8.61：大地图图层被区域底图盖住的问题修好（MapOverlay.lua）；/wgmap 打印诊断，/wgmap on|off 开关。
 v0.17：给 WowGrinder v8.60：大地图上画 刷怪中心/半径、跑尸路线、修理路线/修理商（MapOverlay.lua + MapData.lua），
@@ -1100,28 +1102,18 @@ local function Update()
     function() return UnitPower("player", MANA), UnitPowerMax("player", MANA) end)
 end
 
--------------------------------------------------------------------- v0.12 姓名板显示距离
--- 从大到小试：设完读回来，取实际生效的最大值（正式服一般最大 60 码；服务器/客户端锁死时读回来还是原值）
+-------------------------------------------------------------------- v0.12 姓名板显示距离（v0.20：只读，不改）
+-- v0.20（WowGrinder v8.66）：插件不再改任何游戏设置（CVar）。以前登录 / /reload 会把 nameplateMaxDistance 调到最大，
+-- 现在只用 GetCVar 读出当前值报给程序（色块 35 / C 行不变）；想改请自己在游戏选项里改。
 local npPending = false
-local function ApplyNameplateDistance(verbose)
-  if InCombatLockdown and InCombatLockdown() then npPending = true; return end
+local function ReadNameplateDistance(verbose)
   npPending = false
-  local before = tonumber(GetCVar and GetCVar("nameplateMaxDistance") or "")
-  local best = before
-  for _, v in ipairs({ 200, 100, 80, 60, 41, 40 }) do
-    if best and best >= v then break end
-    pcall(SetCVar, "nameplateMaxDistance", v)
-    local now = tonumber(GetCVar("nameplateMaxDistance") or "")
-    if now and (not best or now > best) then best = now end
-    if now and now >= v then break end
-  end
-  if best and before and best < before then pcall(SetCVar, "nameplateMaxDistance", before); best = before end
-  pcall(SetCVar, "nameplateShowEnemies", 1)
-  npDist = best and math.floor(best + 0.5) or nil
+  local now = tonumber(GetCVar and GetCVar("nameplateMaxDistance") or "")
+  npDist = now and math.floor(now + 0.5) or nil
   npOK = npDist ~= nil
   if verbose then
-    print(string.format("|cff40ff40BotStatus v0.18|r 姓名板显示距离：%s 码（原来 %s；客户端允许的最大值，再远的怪只显示名字）",
-      tostring(npDist or "读不到"), tostring(before or "?")))
+    print(string.format("|cff40ff40BotStatus v0.20|r 姓名板显示距离（只读，插件不改设置）：%s 码",
+      tostring(npDist or "读不到")))
   end
 end
 
@@ -1181,13 +1173,13 @@ frame:SetScript("OnEvent", function(_, event, a1, a2)
     Layout()
     Resolve()
     FindAttackSlot()
-    if npPending then pcall(ApplyNameplateDistance, true) end
+    if npPending then pcall(ReadNameplateDistance, false) end
   else
     Layout()
     Resolve()
     FindAttackSlot()
     if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
-      pcall(ApplyNameplateDistance, not npShownOnce)
+      pcall(ReadNameplateDistance, not npShownOnce)
       npShownOnce = true
     end
   end

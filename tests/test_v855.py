@@ -418,7 +418,7 @@ class Strings(unittest.TestCase):
         lua = _rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.lua"))
         self.assertIn("local NUM_BLOCKS = 44", lua)
         self.assertIn("RepairAllItems", lua)
-        self.assertRegex(_rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc")), r"## Version: 0\.1[5-9]\.0")
+        self.assertRegex(_rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc")), r"## Version: (0\.1[5-9]|0\.[2-9]\d)\.0")
 
 
 if __name__ == "__main__":

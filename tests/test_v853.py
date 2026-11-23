@@ -36,7 +36,7 @@ class Defaults(unittest.TestCase):
                           n["red_walk_bad_s"], n["red_walk_hits"]), (2.0, 5, 0.15, 120.0, 2))
         self.assertNotIn("use_addon_ui", n)
         self.assertNotIn("ui_margin_px", n)
-        self.assertEqual(len(n["red_ui_exclude"]), 9)              # 手动排除区照旧（v8.51）
+        self.assertEqual(len(n["red_ui_exclude"]), 10)             # 手动排除区：v8.51 的 9 块 + v8.66 右上 buff 一排
 
     def test_migrate_back_from_v852_once(self):
         loaded = {"nameplate": {"red_walk_static_s": 0.0, "use_addon_ui": True, "ui_margin_px": 8},

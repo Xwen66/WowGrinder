@@ -71,6 +71,9 @@ ADVANCED = {
     ("nameplate", "red_walk_static_s"), ("nameplate", "red_walk_static_px"), ("nameplate", "red_walk_min_move"),
     ("nameplate", "red_walk_bad_s"), ("nameplate", "red_walk_hits"),
     ("nameplate", "far_walk_max_s"), ("nameplate", "far_lost_s"), ("nameplate", "far_skip_s"), ("nameplate", "far_turn_deg"),
+    ("nameplate", "red_mask_turn_deg"), ("nameplate", "red_mask_frac"), ("nameplate", "red_mask_min_hits"),
+    ("nameplate", "red_min_purity"), ("nameplate", "red_min_mean_r"), ("nameplate", "red_min_strokes"),
+    ("nameplate", "far_min_room_s"),
     ("scan", "spin_deg"), ("scan", "spin_near_ratio"), ("scan", "spin_wait_s"), ("area", "arrive_ratio"),
     ("area", "turn_rate_dps"), ("area", "face_tolerance_deg"), ("area", "walk_correct_deg"),
     ("area", "return_timeout_s"), ("area", "stuck_s"),
@@ -91,7 +94,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.65")
+        self.title("WowGrinder 熊德自动打怪 v8.66")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -597,6 +600,22 @@ class App(tk.Tk):
         vals[-1] = "是" if s["enabled"] else "否"
         self.tree.item(sel[0], values=vals)
 
+    def clear_red_mask(self):
+        """v8.66：删掉 red_ui_mask.json；bot 在跑就顺便清空内存里的。"""
+        from bot.config import BASE_DIR
+        path = os.path.join(BASE_DIR, "red_ui_mask.json")
+        g = self.runner.grinder if (self.runner and self.runner.running) else None
+        try:
+            if g is not None:
+                g.redmask.clear()
+                g.red_ui_bad = []
+                g.redmask.save(force=True)
+            elif os.path.exists(path):
+                os.remove(path)
+            self.log("🧱 已清空学到的红名界面遮罩，从头学")
+        except Exception as e:  # noqa: BLE001
+            self.log(f"清空界面遮罩失败：{type(e).__name__}: {e}")
+
     def skill_delete(self):
         for iid in self.tree.selection():
             self.tree.delete(iid)
@@ -647,6 +666,21 @@ class App(tk.Tk):
             ("nameplate", "far_lost_s", "红名看不到几秒就停", "float", None, "默认 1.5"),
             ("nameplate", "far_skip_s", "走过去没结果，几秒内不再走", "float", None, "默认 5（v8.34 从 20 改短）"),
             ("nameplate", "far_turn_deg", "红名偏离超过(°)先转身", "float", None, "默认 12"),
+            # v8.66（t249u）：远处红名误判 1/2/3
+            ("nameplate", "red_learn_mask", "红名：学固定界面遮罩（v8.66）", "bool", None,
+             "默认开：转身前后总在屏幕同一处的“红名”= 界面，以后都不看（存 red_ui_mask.json，重启还记得）"),
+            ("nameplate", "red_mask_turn_deg", "遮罩：每转几度取样一次", "float", None, "v8.66 默认 15"),
+            ("nameplate", "red_mask_frac", "遮罩：同一处出现比例≥", "float", None, "v8.66 默认 0.4"),
+            ("nameplate", "red_mask_min_hits", "遮罩：同一处至少出现几次", "int", None, "v8.66 默认 5"),
+            ("nameplate", "red_strict", "红名：更严格的名字判断（v8.66）", "bool", None,
+             "默认开：要纯红色、像一行字（高度/宽度/笔画），红土/红岩/报错字/血条不算；走过去之前就筛掉"),
+            ("nameplate", "red_min_purity", "严格：红字纯度≥", "int", None, "v8.66 默认 90（名字 102-126，红土 36-60）"),
+            ("nameplate", "red_min_mean_r", "严格：红字亮度≥", "int", None, "v8.66 默认 150（名字 160-224）"),
+            ("nameplate", "red_min_strokes", "严格：笔画切换≥", "float", None, "v8.66 默认 1.0（字 1.8-2.8，血条 < 0.5）"),
+            ("nameplate", "red_in_area_only", "红名：范围外的不走（v8.66）", "bool", None,
+             "默认开：朝那个方向走不到几秒就出范围（所有中心的半径都算）→ 不朝它走"),
+            ("nameplate", "far_min_room_s", "范围外：离范围边少于几秒路就不走", "float", None,
+             "v8.66 默认 3（走到出标记中位 4.8 秒）；走路速度边走边学"),
             ("scan", "tap_ms", "找怪转视角每次(ms)", "int", None, "约 350ms ≈ 63°（转身速度 180°/秒时）"),
             ("scan", "settle_ms", "转完等待(ms)", "int", None, ""),
             ("move", "approach_timeout_s", "走过去超时(秒)", "float", None, "超时还没打上→换怪"),
@@ -692,6 +726,11 @@ class App(tk.Tk):
                             text="Tab 找怪（v8.40，要插件 v0.13）：找怪先按选怪键（基本设置页“选怪键”，默认 Tab），"
                                  "合格就过去打；不合格/没选到 → 清目标、不转身，接着点屏幕标记/走去远处")
         tf.grid(row=3, column=0, sticky="nw", pady=(10, 4))
+        mf = ttk.LabelFrame(right, padding=6, text="红名界面遮罩（v8.66）")
+        mf.grid(row=4, column=0, sticky="nw", pady=(6, 4))
+        ttk.Button(mf, text="清空学到的界面遮罩", command=self.clear_red_mask).pack(side="left")
+        ttk.Label(mf, foreground="#666", wraplength=200, justify="left",
+                  text="改了界面布局、或觉得它把真怪的位置当成界面时点一下，从头学").pack(side="left", padx=6)
         ts_items = [
             ("enabled", "Tab 找怪", "bool", "默认开：每次找怪先按 Tab"),
             ("while_moving", "移动中也按 Tab", "bool", "默认开：巡逻/回中心时定时按（朝红名走见下一项）；跑尸、战斗、拾取、回血时不按"),

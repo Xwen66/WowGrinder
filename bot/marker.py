@@ -158,12 +158,20 @@ def _components(mask):
 
 # ---------------------------------------------------------------- v8.28：远处的怪只显示红色名字（没有血条/标记）
 def find_red_names(frame_bgr, region=None, min_r=80, ratio=1.5, min_diff=35, min_w=14, max_w=260,
-                   min_h=5, max_h=26, min_px=40, exclude=()):
+                   min_h=5, max_h=26, min_px=40, exclude=(), strict=None):
     """在世界区域里找敌对 NPC 的红色名字。返回 [{x, y, w, h, px}]（frame 像素，x/y 为左上角），按像素多到少排序。
 
     红字：R 明显大于 G、B（R ≥ min_r，R ≥ ratio × G/B，R - max(G,B) ≥ min_diff）。远处名字会变淡，所以门槛不高；
     再把横向挨着的字连成一行（膨胀），只留“一行字”形状：高 min_h..max_h、宽 min_w..max_w、宽 ≥ 1.5 × 高。
     选中光圈、红色血条、大块红色地面都不是这个形状。exclude = [(x, y, w, h), ...] 不找的地方（界面）。
+
+    v8.66 strict = dict（None = 旧做法）：更严格的“这是一行红字名字”判断（在朝它走之前就筛掉）：
+      min_purity  红字像素平均 (R - max(G,B)) ≥ 这个（名字 102-126；千针石林的红土/红岩 36-60；顶部红字报错 72-84）
+      min_mean_r  红字像素平均 R ≥ 这个（名字 160-224；红土 100-170）
+      min_h / max_h  一行字的高（按 1350 高的画面算，自动按画面高缩放；名字 17-26）
+      min_w       最窄（2 个字的名字 ≈ 40）
+      min_strokes 每 20 像素宽平均有几次“红/不红”切换（字有笔画 ≈ 1.8-2.8；血条/横条 < 0.5）
+    返回的每个名字多带 pur / mr / strokes 三个值（日志/测试用）。
     """
     if frame_bgr is None or frame_bgr.ndim != 3:
         return []
@@ -198,12 +206,30 @@ def find_red_names(frame_bgr, region=None, min_r=80, ratio=1.5, min_diff=35, min
         for x, y, w, h, _ in _components(mask):
             comps.append((x, y, w, h, int(mask[y:y + h, x:x + w].sum())))
     out = []
+    sc = H / 1350.0
     for x, y, w, h, px in comps:
-        if px < min_px or not (min_h <= h <= max_h) or not (min_w <= w <= max_w) or w < 1.5 * h:
+        if strict is not None:
+            lo_h, hi_h = float(strict.get("min_h", 13)) * sc, float(strict.get("max_h", 28)) * sc
+            if px < min_px or not (lo_h <= h <= hi_h) or not (float(strict.get("min_w", 30)) * sc <= w <= max_w) \
+                    or w < 1.5 * h:
+                continue
+        elif px < min_px or not (min_h <= h <= max_h) or not (min_w <= w <= max_w) or w < 1.5 * h:
             continue
         fill = px / float(w * h)
         if fill > 0.75:                   # 实心红块（血条/按钮），不是字
             continue
-        out.append({"x": x + x0, "y": y + y0, "w": w, "h": h, "px": px})
+        d = {"x": x + x0, "y": y + y0, "w": w, "h": h, "px": px}
+        if strict is not None:
+            m = mask[y:y + h, x:x + w]
+            rr, mm = r[y:y + h, x:x + w], mx[y:y + h, x:x + w]
+            pur = float((rr - mm)[m].mean()) if m.any() else 0.0
+            mr = float(rr[m].mean()) if m.any() else 0.0
+            tr = float(np.abs(np.diff(m.astype(np.int8), axis=1)).sum(1).mean()) if w > 1 else 0.0
+            strokes = tr / max(1.0, w / (20.0 * sc))
+            d.update(pur=round(pur, 1), mr=round(mr, 1), strokes=round(strokes, 2))
+            if pur < float(strict.get("min_purity", 90)) or mr < float(strict.get("min_mean_r", 150)) \
+                    or strokes < float(strict.get("min_strokes", 1.0)):
+                continue
+        out.append(d)
     out.sort(key=lambda d: -d["px"])
     return out

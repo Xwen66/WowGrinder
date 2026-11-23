@@ -231,9 +231,9 @@ class Strings(unittest.TestCase):
         self.assertIn("充分进食", rd)
         lua = _rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.lua"))
         self.assertTrue(re.search(r"local NUM_BLOCKS = (4[2-9])", lua))
-        self.assertTrue(re.search(r"BotStatus v0\.1[4-9]", lua))
+        self.assertTrue(re.search(r"BotStatus v0\.(1[4-9]|[2-9]\d)", lua))
         toc = _rd(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc"))
-        self.assertTrue(re.search(r"## Version: 0\.1[4-9]\.0", toc))
+        self.assertTrue(re.search(r"## Version: (0\.1[4-9]|0\.[2-9]\d)\.0", toc))
         sm = _rd(os.path.join(ROOT, "bot", "state_machine.py"))
         self.assertNotIn("_fb_close_tick", sm)
 

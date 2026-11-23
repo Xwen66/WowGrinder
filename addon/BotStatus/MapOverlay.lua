@@ -206,7 +206,7 @@ local function count(t) return type(t) == "table" and #t or 0 end
 function M.Status()
   local D = BotStatusMapData
   local p = function(s) print("|cff40ff40[WG 图层]|r " .. s) end
-  p("插件 v0.19；图层：" .. (hidden() and "关" or "开") .. "；初始化：" .. (M.frame and "成功" or ("没有（" .. tostring(M.setupErr or "找不到大地图") .. "）")))
+  p("插件 v0.20；图层：" .. (hidden() and "关" or "开") .. "；初始化：" .. (M.frame and "成功" or ("没有（" .. tostring(M.setupErr or "找不到大地图") .. "）")))
   if type(D) == "table" then
     p(string.format("数据：%s 写入；中心 %d 个（半径 %s）、跑尸 %d 点、修理 %d 点、修理商 #%s",
       tostring(D.written), count(D.centers), tostring(D.radius), count(D.corpse), count(D.repair), tostring(D.vendor)))

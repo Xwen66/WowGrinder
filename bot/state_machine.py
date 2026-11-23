@@ -48,6 +48,7 @@ from .marker import marker_bearing, plate_bearing
 from .sound import alarm
 from .input import StopRequested
 from .navigation import angle_diff, area_label, area_report, bearing_to, distance, turn_command
+from .redmask import RedUIMask
 
 
 from .corpse import CorpseRunMixin  # noqa: E402
@@ -219,6 +220,10 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.red_walk_hits = []          # v8.51：直走时认定过的位置 [(x, y)]（同一位置 red_walk_hits 次 → 永久）
         self.red_turn_hits = []          # v8.53：转身判定过的位置 [(x, y)]
         self.red_tracks = []             # v8.53：屏幕上正盯着的红名 [{x, y, t0, pos0, fac0, last, n}]
+        self.redmask = RedUIMask()       # v8.66：固定界面遮罩（转身前后总在同一格的“红名”= 界面；runner 绑定文件存盘）
+        self.walk_ups = None             # v8.66：走路速度（地图单位/秒，边走边学）
+        self._spd = None                 # v8.66：(上次位置, 时间)
+        self.far_room_log = 0.0
         self.travel_seen = 0             # v8.28：巡逻路上连续几帧看到标记
         self.eng_seen = 0                # v8.32：非战斗连续几帧看到能打的怪的标记
         self.eng_log_t = -1e9
@@ -586,17 +591,86 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
     def _far_targets(self, obs, now) -> list:
         """远处的怪：红色名字 + 屏幕最上面一条里的标记。返回 [(cx, cy, 说明)]。"""
         out = [(p["x"] + p["w"] / 2, p["y"] + p["h"] / 2, "远处姓名板") for p in self._clickable(obs, now, top=True)]
+        skipped = []
         for n in getattr(obs, "red_names", None) or []:
             cx, cy = n["x"] + n["w"] / 2, n["y"] + n["h"] / 2
-            if not self._is_bad(cx, cy, now) and not self._red_ui(cx, cy):
-                out.append((cx, cy, "红名"))
+            if self._is_bad(cx, cy, now) or self._red_ui(cx, cy):
+                continue
+            room = self._far_room_s(obs, cx, cy)
+            if room is not None and room < float(self._nc().get("far_min_room_s", 3.0)):
+                skipped.append((cx, cy, room))
+                continue
+            out.append((cx, cy, "红名"))
+        if skipped and not out and now - self.far_room_log >= 10.0:
+            self.far_room_log = now
+            cx, cy, room = skipped[0]
+            self.log(f"🚫 红名({cx:.0f},{cy:.0f}) 在范围外的方向：朝它走 {room:.1f} 秒就到范围边上"
+                     f"（< {float(self._nc().get('far_min_room_s', 3.0)):.0f} 秒，走不到出标记）→ 不朝它走"
+                     + (f"（另外 {len(skipped) - 1} 个同样）" if len(skipped) > 1 else ""))
         return out
+
+    # ---- v8.66（t249u 第 3 项）范围外的红名不走
+    def _walk_speed(self) -> float:
+        """走路速度（地图单位/秒）：边走边学；还没学到用 0.17（千针石林实测约 0.17/秒）。"""
+        return self.walk_ups if self.walk_ups else 0.17
+
+    def _speed_tick(self, obs, now):
+        """v8.66：按住前进键、不在战斗中时，用坐标变化学走路速度（慢慢平均；卡住/转身的帧会被过滤掉一部分）。"""
+        if not self.walking or obs.pos is None or obs.in_combat:
+            self._spd = None
+            return
+        if self._spd is None:
+            self._spd = (obs.pos, now)
+            return
+        p0, t0 = self._spd
+        dt = now - t0
+        if dt < 1.0:
+            return
+        self._spd = (obs.pos, now)
+        if dt > 3.0:
+            return
+        v = distance(p0, obs.pos) / dt
+        if 0.05 <= v <= 1.0:
+            self.walk_ups = v if self.walk_ups is None else self.walk_ups * 0.9 + v * 0.1
+
+    def _far_room_s(self, obs, cx, cy):
+        """朝屏幕上 (cx, cy) 那个方向直走，几秒后会走出范围（所有同地图中心的半径都算：走进别的中心会自动切换）。
+        None = 不判断（关了 / 没开范围 / 没坐标或朝向 / 没中心）。"""
+        n, a = self._nc(), self.cfg.get("area", {})
+        if not n.get("red_in_area_only", True) or not a.get("enabled") or obs.pos is None \
+                or getattr(obs, "facing", None) is None or self.home is None:
+            return None
+        want_map = int(self.home[2] or 0)
+        if want_map and obs.map_id is not None and obs.map_id != want_map:
+            return None
+        r = float(a.get("radius", 3))
+        cs = [self.home[:2]]
+        if a.get("auto_switch_center", True):
+            cs += [c[:2] for c in self.centers if self._same_map(c, obs.map_id)]
+        deg = self._far_bearing(obs, cx, cy)
+        th = obs.facing - math.radians(deg)            # 屏幕右边 = 顺时针 = 朝向变小
+        ux, uy = -math.sin(th), -math.cos(th)
+        px, py = obs.pos[0], obs.pos[1]
+        if not any(math.hypot(px - c[0], py - c[1]) <= r for c in cs):
+            return 0.0
+        step, t, lim = max(0.02, r / 40.0), 0.0, r * 4
+        while t < lim:
+            t2 = t + step
+            qx, qy = px + ux * t2, py + uy * t2
+            if not any(math.hypot(qx - c[0], qy - c[1]) <= r for c in cs):
+                break
+            t = t2
+        return t / self._walk_speed()
 
     def _red_ui(self, cx, cy) -> bool:
         """v8.50：这个位置以前被认定是界面（朝它转身它在屏幕上不动）。"""
         r = max(30.0, float(self._nc().get("red_static_px", 20)) * 2)
         if any(math.hypot(cx - bx, cy - by) < r for bx, by in self.red_ui_bad):
             return True
+        if self._nc().get("red_learn_mask", True):     # v8.66：学到的固定界面遮罩（存盘，下次启动还记得）
+            lo = self.last_obs
+            if self.redmask.is_ui(cx, cy, getattr(lo, "frame_size", None) if lo is not None else None):
+                return True
         now = self.clock()
         return any(now < t and math.hypot(cx - bx, cy - by) < r for bx, by, t in self.red_ui_tmp)
 
@@ -665,12 +739,33 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         if hits >= need:
             self.red_ui_bad.append((cx, cy))
             how = "这次运行不再看这个位置"
+            if n.get("red_learn_mask", True):
+                self._mask_point(cx, cy, r)
+                how = "这次运行不再看这个位置，以后也不看（记进界面遮罩）"
         else:
             bad_s = float(n.get("red_walk_bad_s", 120))
             self.red_ui_tmp.append((cx, cy, now + bad_s))
             how = f"{bad_s:.0f} 秒内不再看这个位置（再认定 {need - hits} 次就这次运行都不看）"
         self.log(f"🚫 “红名”({cx:.0f},{cy:.0f})：{why}，它在屏幕上一动不动 → 是界面上的红色（技能栏/报错字/头像等），"
                  f"不是怪；第 {hits} 次，{how}")
+
+    def _mask_point(self, cx, cy, r):
+        lo = self.last_obs
+        self.redmask.add_point(cx, cy, r, getattr(lo, "frame_size", None) if lo is not None else None)
+
+    def _red_mask_tick(self, obs, now):
+        """v8.66（t249u 第 1 项）：不在战斗中，每转身 ≥ red_mask_turn_deg 取样一次，学固定界面遮罩。"""
+        n = self._nc()
+        if not n.get("red_learn_mask", True) or obs.source != "addon" or obs.in_combat \
+                or getattr(obs, "player_dead", False):
+            return
+        new = self.redmask.observe(getattr(obs, "red_names", None) or [], getattr(obs, "facing", None), obs.frame_size,
+                                   float(n.get("red_mask_turn_deg", 15)), float(n.get("red_mask_frac", 0.4)),
+                                   int(n.get("red_mask_min_hits", 5)))
+        if new:
+            pts = "、".join(f"({x:.0f},{y:.0f})" for x, y in new[:6])
+            self.log(f"🚫 界面遮罩：{pts}{' 等' if len(new) > 6 else ''} 这 {len(new)} 格转身前后一直有“红名” → 是界面，"
+                     f"以后都不看（共 {self.redmask.summary()}）")
 
     def _far_static(self, cx, cy, kind) -> bool:
         """v8.50：每次朝红名转身记一下它的屏幕位置；转了 red_static_turns 次还在原地 → 是界面，拉黑这个位置。"""
@@ -687,8 +782,10 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         if f["turns"] < need:
             return False
         self.red_ui_bad.append((cx, cy))
+        if n.get("red_learn_mask", True):
+            self._mask_point(cx, cy, max(30.0, tol * 2))
         self.log(f"🚫 朝“红名”({cx:.0f},{cy:.0f}) 转了 {f['turns']} 次它在屏幕上一动不动 → 是界面上的红色（头像/任务栏等），"
-                 "不是怪；这次运行不再看这个位置")
+                 "不是怪；" + ("这次运行不再看这个位置，以后也不看（记进界面遮罩）" if n.get("red_learn_mask", True) else "这次运行不再看这个位置"))
         return True
 
     def _far_bearing(self, obs, cx, cy) -> float:
@@ -1302,6 +1399,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             return
         if self._red_track(obs, now) and self.far is not None:   # v8.53：转身/走路时不动的红名 = 界面
             self._far_end("那个“红名”是界面", skip=False)
+        self._red_mask_tick(obs, now)       # v8.66：学固定界面遮罩
+        self._speed_tick(obs, now)          # v8.66：学走路速度（范围外红名判断用）
         if obs.in_combat and (getattr(self, "ts_miss", 0) or getattr(self, "ts_backoff", False)):
             self._ts_found("进入战斗")      # v8.54：打上怪了 → Tab 连续没选到清零/暂停恢复
 

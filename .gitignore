@@ -5,3 +5,5 @@ logs/
 screenshots/
 config.backup*
 *.zip
+red_ui_mask.json
+red_ui_mask.json.tmp

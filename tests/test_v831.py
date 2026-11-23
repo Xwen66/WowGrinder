@@ -316,19 +316,21 @@ C_NamePlate = { GetNamePlateForUnit = function(u)
         return st, g, len(shown)
 
     def test_alive_cvar_max_and_signature(self):
+        # v0.20（WowGrinder v8.66）：插件不再改姓名板距离 CVar，只读出当前值照旧报给程序
         st, g, _ = self.run_lua()
         self.assertTrue(st.ok, st.reason)
         self.assertTrue(st.death_info)
         self.assertFalse(st.player_dead)
-        self.assertEqual(st.np_dist, 60)
+        self.assertEqual(st.np_dist, 40)
         self.assertTrue(st.np_ok)
-        self.assertEqual(g.CVARS["nameplateMaxDistance"], "60")
-        self.assertTrue(any("姓名板显示距离" in str(p) and "60" in str(p) for p in g.PRINTS.values()))
+        self.assertEqual(g.CVARS["nameplateMaxDistance"], "40")        # 没被改
+        self.assertTrue(any("姓名板显示距离" in str(p) and "40" in str(p) for p in g.PRINTS.values()))
         self.assertIsNone(st.corpse_pos)                       # 活着不报尸体
 
     def test_cvar_higher_allowed(self):
         st, g, _ = self.run_lua(cvar_max=100)
-        self.assertEqual(st.np_dist, 100)
+        self.assertEqual(st.np_dist, 40)                               # v0.20：客户端允许更大也不改
+        self.assertEqual(g.CVARS["nameplateMaxDistance"], "40")
 
     def test_ghost_corpse_and_popup(self):
         st, g, _ = self.run_lua(ghost=True, popup="RECOVER_CORPSE")
@@ -350,7 +352,7 @@ C_NamePlate = { GetNamePlateForUnit = function(u)
 
     def test_toc(self):
         with open(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc"), encoding="utf-8") as f:
-            self.assertRegex(f.read(), r"## Version: 0\.1[2-9]\.0")   # 插件版本往上走
+            self.assertRegex(f.read(), r"## Version: (0\.1[2-9]|0\.[2-9]\d)\.0")   # 插件版本往上走
 
 
 if __name__ == "__main__":

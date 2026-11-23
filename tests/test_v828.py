@@ -203,7 +203,7 @@ C_NamePlate = { GetNamePlateForUnit = function(u)
     def test_toc_version(self):
         with open(os.path.join(ROOT, "addon", "BotStatus", "BotStatus.toc"), encoding="utf-8") as f:
             toc = f.read()
-        self.assertRegex(toc, r"## Version: 0\.1[2-9]\.0")   # 插件版本往上走
+        self.assertRegex(toc, r"## Version: (0\.1[2-9]|0\.[2-9]\d)\.0")   # 插件版本往上走
 
 
 class Click828(Base):

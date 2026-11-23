@@ -1794,7 +1794,7 @@ class TestV010Marker(unittest.TestCase):
         toc = open(os.path.join(root, "addon", "BotStatus", "BotStatus.toc"), encoding="utf-8").read()
         self.assertIn('marker:SetPoint("CENTER", plate, "CENTER", 0, 0)', lua)
         self.assertIn("Paint(28, C.green)", lua)          # v0.11 签名（v0.10 = 白）
-        self.assertRegex(toc, r"## Version: 0\.1[2-9]\.0")   # 插件版本往上走
+        self.assertRegex(toc, r"## Version: (0\.1[2-9]|0\.[2-9]\d)\.0")   # 插件版本往上走
 
 
 class TestV010MarkerOnPlate(unittest.TestCase):
