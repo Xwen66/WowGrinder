@@ -284,6 +284,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.rest_mana0 = None
         self.buff_mana0 = None
         self.cast_peak = None           # v8.42：读条中见过的最高法力（蓝在读完时才扣，读条期间还在回）
+        self.heal_busy_t0 = self.heal_busy_end = self.heal_end_t = None   # v8.67
         self.heal_inflight = None       # v8.42：(时间, 法力)：等读条超时就结束了，但治疗之触还在读 → 蓝还没扣
         self.heal_costs: list[float] = []   # v8.42：这次运行实测的治疗之触耗蓝（取最近几次的最大值）
         self.shift_wait_noted = False
@@ -3395,6 +3396,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.heal_t0 = self.heal_phase_t = now
         self.heal_presses = self.heal_shift_presses = 0
         self.heal_next_press = now
+        self.heal_busy_t0 = self.heal_busy_end = self.heal_end_t = None
         self.heal_chain = 1
         self.heal_cast_hp0 = obs.player_hp
         self.log(f"🩹 {why}：血量 {obs.player_hp:.0f}%（{self._hp_src(obs)}）< {h['heal_pct']}% → "
@@ -3423,7 +3425,13 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         retry = float(h.get("ht_retry_s", 0.7))
         max_presses = int(h.get("ht_max_presses", 5))
         shift_to = float(h.get("shift_timeout_s", 2.5))
-        if now - self.heal_t0 > shift_to + max_presses * retry + cast_s + 3.0:
+        max_wait = float(h.get("ht_max_wait_s", 10.0))      # v8.67：读条中最多等多久（被打推迟读条常要 6 秒多）
+        settle = float(h.get("ht_settle_s", 0.5))           # v8.67：读条结束后等血量更新再看
+        # v8.67：等读条（wait）和等上一个读条结束（busy）有自己的上限，不算进总超时
+        busy = self.heal_phase == "cast" and self.heal_presses == 0 and \
+            (bool(obs.casting) or self.heal_busy_t0 is not None)
+        if self.heal_phase != "wait" and not busy and \
+                now - self.heal_t0 > shift_to + max_presses * retry + cast_s + 3.0:
             self.log(f"⚠️ 治疗流程超时（{now - self.heal_t0:.1f} 秒），放弃这次治疗")
             return self._heal_done(obs, now, False)
         if self.heal_phase == "shift":
@@ -3440,14 +3448,40 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                     self._press_cancel(now)
                 return
         if self.heal_phase == "cast":
+            if self.heal_presses == 0 and busy:
+                # v8.67（t252u）：插件说还在读条 → 绝不按治疗之触（按了会排队，上一个加满血后再读一个）
+                if obs.casting:
+                    if self.heal_busy_t0 is None:
+                        self.heal_busy_t0 = now
+                        self.log("🩹 还在读条（上一个法术没读完）→ 先不按治疗之触，等它读完")
+                    self.heal_busy_end = None
+                    if now - self.heal_busy_t0 > max_wait:
+                        self.log(f"⚠️ 等了 {max_wait:.0f} 秒还在读条 → 放弃这次治疗")
+                        self.heal_busy_t0 = None
+                        return self._heal_done(obs, now, False)
+                    return
+                if self.heal_busy_end is None:
+                    self.heal_busy_end = now
+                if now - self.heal_busy_end < settle:
+                    return
+                waited = now - self.heal_busy_t0
+                self.heal_busy_t0 = self.heal_busy_end = None
+                self.heal_t0 += waited                # 等别人读条的时间不算治疗用时
+                self.heal_next_press = now
+                to = float(h.get("heal_to_pct", 90))
+                if obs.hp_readable and obs.player_hp >= to:
+                    self.log(f"🩹 上一个读条落地后血量 {obs.player_hp:.0f}% ≥ 回复线 {to:.0f}% → 不用再放治疗之触")
+                    return self._heal_done(obs, now, False)
             if self.heal_presses >= 1 and obs.casting:
                 self.log(f"🩹 治疗之触开始读条（按了 {self.heal_presses} 次，用时 {now - self.heal_t0:.1f} 秒）")
                 self.heal_phase, self.heal_phase_t = "wait", now
+                self.heal_end_t = None
                 self.heal_mana0 = obs.mana
                 self.cast_peak = obs.mana
                 return
             if self.heal_presses >= 1 and obs.casting is None:   # 截图模式：不知道有没有读条，按时间等
                 self.heal_phase, self.heal_phase_t = "wait", self.heal_last_press
+                self.heal_end_t = None
                 return
             if now >= self.heal_next_press:
                 if self.heal_presses >= max_presses:
@@ -3469,13 +3503,22 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                 if el >= cast_s:
                     return self._heal_done(obs, now, True)
                 return
-            if obs.casting and el < cast_s + 2.0:
-                return
             if obs.casting:
-                self.log(f"⚠️ 读条超过 {cast_s + 2:.0f} 秒还在读，先结束")
+                # v8.67（t252u）：还在读就继续等（被打会推迟读条，常要 6 秒多），最多 ht_max_wait_s 秒
+                self.heal_end_t = None
+                if el < max_wait:
+                    return
+                self.log(f"⚠️ 读条超过 {max_wait:.0f} 秒还在读，先结束")
                 self.heal_inflight = (now, obs.mana)    # v8.42：游戏里还在读，蓝还没扣
-            elif el < 0.8:
-                self.log(f"⚠️ 读条只持续了 {el:.1f} 秒（可能被打断）")
+                return self._heal_done(obs, now, True)
+            if self.heal_end_t is None:
+                self.heal_end_t = now
+                if el < 0.8:
+                    self.log(f"⚠️ 读条只持续了 {el:.1f} 秒（可能被打断）")
+                else:
+                    self.dlog(f"[治疗] 读条结束（{el:.1f} 秒），等 {settle:.1f} 秒血量更新再看")
+            if now - self.heal_end_t < settle:          # v8.67：治疗落地、血条更新后再看血量
+                return
             return self._heal_done(obs, now, True)
         return self._heal_done(obs, now, False)
 
@@ -3531,6 +3574,9 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             why = f"已经连放 {chain} 个（上限 {h.get('heal_chain_max', 6)}）"
         elif not ok:
             why = "这个没放出来"
+        elif hp - hp0 < float(h.get("heal_chain_min_rise_pct", 1.0)):
+            # v8.67（t252u）：血量比上次决定时没涨 → 上一个治疗没加上（或还没落地），不接着放
+            why = f"血量没涨（上次 {hp0:.0f}% → 现在 {hp:.0f}%）"
         elif hp < float(h.get("critical_pct", 15)):
             why = f"血量低于危险线 {h.get('critical_pct', 15)}%（按原来的规则处理）"
         elif self._is_bear(obs):
@@ -3544,6 +3590,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.heal_t0 = self.heal_phase_t = now
         self.heal_presses = 0
         self.heal_next_press = now
+        self.heal_busy_t0 = self.heal_busy_end = self.heal_end_t = None
         self.heal_phase = "cast"
         self.log(f"🩹 血量 {hp:.0f}% < 回复线 {to:.0f}% → 留在人形，继续放治疗之触（第 {self.heal_chain} 个）")
         return True
@@ -3569,6 +3616,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.post_key = k.get("healing_touch") or ""
         self.post_name = "生命之触"
         self.post_phase, self.post_presses, self.post_seen_cast = "start", 0, False
+        self.post_busy_end, self.post_was_busy = None, False
         self.post_t0 = self.post_last_press = self.clock()
         self.post_hp0, self.post_mana0, self.post_hit_noted = hp, obs.mana, False
         self.post_learned = False
@@ -3610,6 +3658,20 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             mana, mn = obs.mana, float(h.get("rest_min_mana", 10))
             if mana is not None and 0 < mana < mn:
                 return self._post_done(obs, now, f"🩹 战后治疗：法力 {mana:.0f}% < {mn:.0f}% → 跳过{name}")
+            if obs.casting:
+                # v8.67（t252u）：还在读条（比如战斗中的治疗之触还没读完）→ 不按，等读完再看血量
+                if now - self.post_t0 > float(h.get("ht_max_wait_s", 10.0)):
+                    return self._post_done(obs, now, f"⚠️ 战后治疗：等了 {now - self.post_t0:.0f} 秒还在读条 → 不治疗了")
+                self.post_was_busy, self.post_busy_end = True, None
+                return
+            if getattr(self, "post_was_busy", False):
+                if self.post_busy_end is None:
+                    self.post_busy_end = now             # 刚等完别的读条 → 等血量更新
+                if now - self.post_busy_end < float(h.get("ht_settle_s", 0.5)):
+                    return
+                if obs.hp_readable and obs.player_hp >= self._post_skip_line():
+                    return self._post_done(obs, now, f"🩹 战后治疗：上一个读条落地后血量 {obs.player_hp:.0f}% ≥ "
+                                                     f"{self._post_skip_line():.0f}% → 不用再放{name}")
             self._post_press(obs, now)
             self.post_phase = "wait"
             return
@@ -3731,7 +3793,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
                 self.cast_peak = obs.mana
             self.rest_seen_cast = True
             self.rest_presses = 0
-            self.rest_next_cast = now + 0.3     # 读完 0.3 秒后可以再放
+            self.rest_next_cast = now + float(h.get("ht_settle_s", 0.5))   # v8.67：读完等血量更新（0.3 → 0.5 秒）再决定
             return
         if now < self.rest_next_cast:
             return

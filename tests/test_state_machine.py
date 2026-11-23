@@ -106,6 +106,7 @@ class Base(unittest.TestCase):
         self.cfg["heal"]["reserve_cat_pct"] = 0                # v8.17：旧测试不预留变身法力（新测试自己设）
         self.cfg["heal"]["reserve_bear_pct"] = 0
         self.cfg["move"]["click_interval_s"] = self.RGAP          # v8.24：旧测试不限右键间隔（新测试设 3 秒）
+        self.cfg["heal"]["ht_settle_s"] = 0.0                     # v8.67：旧测试读条一结束就看血量（新行为见 test_v867）
         self.cfg["heal"]["post_enabled"] = self.POST              # v8.27：旧测试用旧的“低于线才回血”（新测试开战后治疗）
         self.cfg["keys"]["interact"] = self.cfg["keys"]["loot"] = "f"   # v8.27 前的默认互动键
         n = self.cfg["nameplate"]                                  # v8.28：旧测试不用 点后验证/拉黑/顶部不点/连续 2 帧/远处红名/先停稳

@@ -54,6 +54,7 @@ class SimonBase(Base):
 
 class TestRegression1907(SimonBase):
     def test_no_third_heal_when_second_still_casting(self):
+        self.cfg["heal"]["ht_max_wait_s"] = 5.0       # v8.67：默认等到 10 秒；这里测“到上限还在读”的路径（旧的 3+2 秒）
         self.engage()
         self.first_heal()
         self.assertEqual(self.g._cost("heal"), 20)                     # 77 → 57
