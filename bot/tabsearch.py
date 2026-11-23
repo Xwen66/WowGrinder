@@ -154,6 +154,8 @@ class TabSearchMixin:
     def _ts_press(self, now, mode, delay=True):
         self._ctx(f"Tab 找怪（{'移动中' if mode == 'move' else '找怪'}）")
         self.inp.press(self._ts_key(), delay=delay)
+        if mode == "search":
+            self.spin_tab_tried = True        # v8.65：这一轮转视角里按过 Tab 了
         self.ts_pend = (now, mode)
         self.ts_last_press = now
 

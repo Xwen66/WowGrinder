@@ -284,6 +284,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.shift_wait_noted = False
         self.spin_deg = 0.0             # v8.19 找怪累计转了多少度
         self.spin_due = False
+        self.spin_tab_tried = False     # v8.65：这一轮转视角里按过 Tab 没有
         self.spin_wait_until = -1e9
         self._reset_target_tracking(now)
 
@@ -817,6 +818,20 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
     def _spin_reset(self):
         self.spin_deg = 0.0
         self.spin_due = False
+        self.spin_tab_tried = False
+
+    def _spin_go(self, obs, now) -> bool:
+        """v8.65（t244u）：转够 spin_deg 度（默认半圈）→ 这一轮还没按过 Tab 就先按一次（Tab 暂停中也按），
+        等结果；Tab 也没选到 → 去下一个中心（_spin_home）。返回 True = 这一帧处理了。"""
+        if getattr(self, "ts_pend", None) is not None:
+            return False                       # Tab 结果还没出来 → 走下面的流程等它
+        if not getattr(self, "spin_tab_tried", False) and not obs.target_exists and self._ts_on(obs):
+            self.ts_cd_until = -1e9
+            self.ts_n = 1
+            self.log(f"🔎 找怪转了约 {getattr(self, 'spin_deg', 0.0):.0f}° 没看到怪 → 走之前再按一次 Tab")
+            self._ts_press(now, "search")
+            return True
+        return self._spin_home(obs, now)
 
     # ---- v8.23 多中心巡逻
     def _same_map(self, c, map_id) -> bool:
@@ -1510,7 +1525,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             return self.start_rest(obs, "找怪前血量不足")
 
         if not obs.in_combat and not hit and not self._alive(obs, dead_pct):
-            if getattr(self, "spin_due", False) and self._spin_home(obs, now):
+            if getattr(self, "spin_due", False) and self._spin_go(obs, now):
                 return
             if now < getattr(self, "spin_wait_until", -1e9):
                 return
@@ -1924,7 +1939,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         if not obs.in_combat:
             self.atk_presses = 0
         if not obs.in_combat and not hit and not self.pending_loot and not self._alive(obs, dead_pct):
-            if getattr(self, "spin_due", False) and self._spin_home(obs, now):
+            if getattr(self, "spin_due", False) and self._spin_go(obs, now):
                 return
             if now < getattr(self, "spin_wait_until", -1e9):
                 return

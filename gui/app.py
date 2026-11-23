@@ -91,7 +91,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.64")
+        self.title("WowGrinder 熊德自动打怪 v8.65")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -647,7 +647,7 @@ class App(tk.Tk):
             ("nameplate", "far_lost_s", "红名看不到几秒就停", "float", None, "默认 1.5"),
             ("nameplate", "far_skip_s", "走过去没结果，几秒内不再走", "float", None, "默认 5（v8.34 从 20 改短）"),
             ("nameplate", "far_turn_deg", "红名偏离超过(°)先转身", "float", None, "默认 12"),
-            ("scan", "tap_ms", "找怪转视角每次(ms)", "int", None, "约 200ms ≈ 35°"),
+            ("scan", "tap_ms", "找怪转视角每次(ms)", "int", None, "约 350ms ≈ 63°（转身速度 180°/秒时）"),
             ("scan", "settle_ms", "转完等待(ms)", "int", None, ""),
             ("move", "approach_timeout_s", "走过去超时(秒)", "float", None, "超时还没打上→换怪"),
             ("move", "walk_far", "怪远先走过去再开打（v8.46）", "bool", None, "默认开：按住前进朝它走，到近战距离再按开怪键"),
@@ -768,8 +768,8 @@ class App(tk.Tk):
             ("area", "leash_ratio", "追怪最远(半径×)", "float", "点击模式：还没开打就追出 半径×此值 → 放弃这只，走回中心"),
             ("area", "auto_switch_center", "就近切换中心（v8.46）", "bool", "出了当前中心的范围、但在另一个中心范围里 → 直接换过去，不走回去"),
             ("area", "center_skip_fails", "中心连续几次去不了就跳过", "int", "v8.54 默认 2；0 = 不跳；至少留 1 个；v8.55：到了任何一个中心，跳过的中心全部恢复、次数清零"),
-            ("scan", "spin_home", "转一圈没找到怪就回中心", "bool", "v8.19：找怪转视角累计转满下面的度数 → 走回范围中心"),
-            ("scan", "spin_deg", "转多少度算一圈", "float", "默认 360"),
+            ("scan", "spin_home", "转够度数没找到怪就换中心", "bool", "v8.19/v8.65：找怪转视角累计转满下面的度数（再按一次 Tab）还没找到怪 → 去下一个中心（只有 1 个中心就回中心）"),
+            ("scan", "spin_deg", "转多少度算一圈", "float", "默认 180（v8.65：转半圈就走）"),
             ("scan", "spin_near_ratio", "已在中心附近(半径×)", "float", "在这个距离内不走，等一会儿再找（默认 0.2）"),
             ("scan", "spin_wait_s", "在中心附近时等(秒)", "float", "默认 3"),
             ("area", "center_x", "中心 X", "float", ""),

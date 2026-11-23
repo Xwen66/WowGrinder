@@ -122,6 +122,7 @@ class Base(unittest.TestCase):
         self.cfg["heal"].update(post_ht_below_pct=70, pull_min_mana_pct=0)
         self.cfg["multi_bear"]["enabled"] = True
         self.cfg["face_click"]["nameplate_first"] = False          # v8.62：旧测试保留旧的转身补救（新行为见 test_v862）
+        self.cfg["scan"]["tap_ms"], self.cfg["scan"]["spin_deg"] = 200, 360   # v8.65：旧测试保留旧的 200ms / 360°（新默认见 test_v865）
         self.clock = Clock()
         self.inp = FakeInput(self.cfg, self.clock)
         self.logs = []

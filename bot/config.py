@@ -395,14 +395,14 @@ DEFAULT_CONFIG: dict = {
         "far_turn_deg": 12.0,         # 名字偏离正前方超过这么多度 → 先转身
     },
     "scan": {
-        "tap_ms": 200,                # 每次按转向键的时长（约 35°）
+        "tap_ms": 350,                # 每次按转向键的时长（v8.65：200 → 350ms ≈ 63°，转一步看得更多）
         "settle_ms": 350,             # 转完等姓名板出现
         "patrol_look_s": 1.0,         # v8.23 中心之间走的路上：每 N 秒看一次有没有能打的怪（姓名板/选中的怪）
         "patrol_tab_s": 2.5,          # v8.23 原地模式在路上每 N 秒按一次 Tab 找怪
         "patrol_resume_s": 3.0,       # v8.23 停下打怪/没选上后，N 秒内不再因为看到姓名板停下
         "patrol_timeout_s": 300,      # v8.23 去下一个中心最多走 N 秒（被打/打怪会重新计时）
         "spin_home": True,            # v8.19：找怪转视角累计转满 spin_deg 度还没找到能打的怪 → 走回范围中心
-        "spin_deg": 360,              # 累计转多少度算“转了一圈”
+        "spin_deg": 180,              # 累计转多少度算“转了一圈”（v8.65：360 → 180，转半圈 + Tab 没怪就去下一个中心）
         "spin_near_ratio": 0.2,       # 已经在中心 半径×此比例 以内 → 不走，等一会儿接着找
         "spin_wait_s": 3.0,           # 在中心附近时等几秒再找
     },
@@ -578,6 +578,13 @@ def _migrate(cfg: dict, loaded: dict) -> dict:
         if isinstance(val, str):
             keys[name] = norm_key(val)
     cfg.pop("flee", None)                            # v8.37：去掉 v8.35 的“怪逃跑追着打”（旧配置里的 flee 段丢掉）
+    if "scan_v865" not in done:                      # v8.65（t244u/t245u）：找怪转视角 每步 200 → 350ms（≈63°）、转满 360 → 180° 就走（只改还是旧默认值的）
+        lsc = loaded.get("scan", {}) or {}
+        if lsc.get("tap_ms") in (200, 200.0):
+            cfg["scan"]["tap_ms"] = 350
+        if lsc.get("spin_deg") in (360, 360.0):
+            cfg["scan"]["spin_deg"] = 180.0
+        done.append("scan_v865")
     if "far_skip_v834" not in done:                  # v8.34：误判后暂停 20 → 5 秒（只改还是旧默认值的）
         if (loaded.get("nameplate", {}) or {}).get("far_skip_s") in (20, 20.0):
             cfg["nameplate"]["far_skip_s"] = 5.0
