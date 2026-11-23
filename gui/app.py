@@ -65,6 +65,9 @@ ADVANCED = {
     ("nameplate", "max_offscreen_turns"), ("stationary", "plate_click_button"), ("stationary", "plate_max_fails"),
     ("stationary", "plate_restore_mouse"),
     ("nameplate", "skip_top_pct"), ("nameplate", "stop_settle_s"), ("nameplate", "confirm_px"), ("nameplate", "verify_s"),
+    ("nameplate", "still_after_s"), ("nameplate", "still_pos_eps"), ("nameplate", "still_face_deg"),
+    ("nameplate", "aim_stable_px"), ("nameplate", "aim_max_wait_s"), ("nameplate", "aim_lead_s"), ("nameplate", "aim_link_px"),
+    ("nameplate", "reject_s"), ("nameplate", "reject_px"), ("nameplate", "reject_hfov_deg"), ("nameplate", "fight_first_keep_s"),
     ("nameplate", "bad_s"), ("nameplate", "bad_radius_px"), ("nameplate", "patrol_frames"),
     ("nameplate", "far_click_frames"), ("nameplate", "red_static_turns"),
     ("nameplate", "red_turn_static_deg"), ("nameplate", "red_turn_static_px"), ("nameplate", "red_turn_hits"),
@@ -94,7 +97,7 @@ ADVANCED = {
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("WowGrinder 熊德自动打怪 v8.67")
+        self.title("WowGrinder 熊德自动打怪 v8.68")
         # v8.16：按屏幕大小开窗口（125%/150% 缩放时 940 高会超出屏幕），可以拉伸
         sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
         self.geometry(f"{min(1100, sw - 40)}x{min(940, sh - 90)}+10+10")
@@ -658,6 +661,20 @@ class App(tk.Tk):
             ("nameplate", "skip_top_pct", "屏幕最上面多少%不点", "float", None, "默认 23（1080p ≈ 上面 250 像素，远处）；0=都点"),
             ("nameplate", "stop_settle_s", "看到怪先停下，停稳(秒)再点", "float", None, "默认 0.3"),
             ("nameplate", "confirm_px", "点前确认：标记偏移不超过(px)", "int", None, "默认 25；0=不确认"),
+            ("nameplate", "still_click", "点找怪标记前：停稳、不转视角（v8.68）", "bool", None,
+             "默认开：角色坐标和朝向连续不变才点，标记两帧稳定才点；一直在动最多等 1 秒点预计位置。点当前目标不受影响"),
+            ("nameplate", "still_after_s", "停稳：没动没转满(秒)", "float", None, "v8.68 默认 0.8"),
+            ("nameplate", "still_pos_eps", "停稳：坐标变化小于(地图坐标)", "float", None, "v8.68 默认 0.002"),
+            ("nameplate", "still_face_deg", "停稳：朝向变化小于(°)", "float", None, "v8.68 默认 1"),
+            ("nameplate", "aim_stable_px", "标记稳定：两帧挪动≤(px)", "int", None, "v8.68 默认 6"),
+            ("nameplate", "aim_max_wait_s", "标记一直在动：最多等(秒)", "float", None, "v8.68 默认 1；然后点预计位置"),
+            ("nameplate", "aim_lead_s", "预计位置提前(秒)", "float", None, "v8.68 默认 0.12（鼠标移过去的时间）"),
+            ("nameplate", "aim_link_px", "同一个标记：下一帧在(px)内", "int", None, "v8.68 默认 90"),
+            ("nameplate", "reject_s", "刚放弃的怪几秒内不点", "float", None, "v8.68 默认 15；0 = 关"),
+            ("nameplate", "reject_px", "放弃的怪：位置半径(px)", "int", None, "v8.68 默认 90（转身会按朝向换算）"),
+            ("nameplate", "reject_hfov_deg", "放弃的怪：屏幕横向视角(°)", "float", None, "v8.68 默认 90"),
+            ("nameplate", "fight_first_keep_s", "点选上的怪几秒内不为捡尸清掉", "float", None,
+             "v8.68 默认 8：先打它，尸体打完再捡（修捡尸⇄打怪来回）"),
             ("nameplate", "verify_s", "点完几秒内要选上(秒)", "float", None, "默认 0.6；没选上算点空"),
             ("nameplate", "bad_s", "点空的位置几秒内不再点", "float", None, "默认 8"),
             ("nameplate", "bad_radius_px", "“那个位置”半径(px)", "int", None, "默认 60"),

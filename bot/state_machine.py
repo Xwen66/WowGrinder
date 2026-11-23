@@ -230,6 +230,12 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.plate_src_logged = None
         self.peek_plates = None          # v8.28：runner 设：再截一张图 → (未选中姓名板, 来源)
         self.click_hit_t = -1e9          # v8.28：找怪右键点中目标的时间（接近途中不再点）
+        self.still_since = None          # v8.68：角色坐标+朝向从这个时间起没变过（停稳不转视角）
+        self.still_ref = None            # v8.68：上一帧 (坐标, 朝向)
+        self.still_log_t = -1e9
+        self.aim = None                  # v8.68：正盯着要点的标记 {t0, t, x, y, vx, vy, n}
+        self.rejects = []                # v8.68：刚放弃的活怪 [(x, y, t, 朝向)]（截图坐标）这段时间不点
+        self.fight_first_t = -1e9        # v8.68：找怪右键点中（先打它）的时间 → 有尸体也不清掉它
         self.scan_turns = 0
         self.offscreen_turns = 0
         self.approach_start = now
@@ -464,8 +470,143 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         if o is not None and not o.target_exists:
             self.dlog(f"[清目标] 已经没有目标，不按「{key}」")
             return
+        self._reject_note(o)             # v8.68：清掉的是活怪 → 记住它在屏幕上的位置，一会儿不再点它
         self._ctx("清除目标")
         self.inp.press(key)
+
+    # ---- v8.68（t264u/t265u）：刚放弃的怪不再点；点标记前角色停稳、不转视角、标记稳定
+    def _reject_note(self, o, now=None):
+        if o is None or not getattr(o, "target_exists", False) or getattr(o, "target_kind", "none") not in ALIVE_KINDS:
+            return
+        if float(getattr(o, "target_hp", 0) or 0) <= 0:
+            return
+        m = getattr(o, "marker", None)
+        if not m:
+            return
+        now = self.clock() if now is None else now
+        self.rejects = [r for r in self.rejects if now - r[2] < float(self._nc().get("reject_s", 15))]
+        self.rejects.append((float(m[0]), float(m[1]), now, getattr(o, "facing", None)))
+        self.dlog(f"[姓名板] 放弃的活怪在 ({m[0]:.0f},{m[1]:.0f}) → {float(self._nc().get('reject_s', 15)):.0f} 秒内不点它")
+
+    def _is_rejected(self, cx, cy, now, obs=None) -> bool:
+        n = self._nc()
+        rs, rp = float(n.get("reject_s", 15)), float(n.get("reject_px", 90))
+        if rs <= 0 or not self.rejects:
+            return False
+        o = obs if obs is not None else self.last_obs
+        fac = getattr(o, "facing", None) if o is not None else None
+        fw = (getattr(o, "frame_size", None) or (1920, 1080))[0] if o is not None else 1920
+        hfov = float(n.get("reject_hfov_deg", 90)) or 90.0
+        for rx, ry, rt, rf in self.rejects:
+            if now - rt >= rs:
+                continue
+            x = rx
+            if fac is not None and rf is not None:      # 转过身：怪在屏幕上横着挪（左转 → 往右）
+                x = rx + math.degrees(angle_diff(fac, rf)) * fw / hfov
+            if math.hypot(cx - x, cy - ry) < rp:
+                return True
+        return False
+
+    def _still_track(self, obs, now):
+        n = self._nc()
+        pos, fac = getattr(obs, "pos", None), getattr(obs, "facing", None)
+        changed = bool(getattr(obs, "moving", False)) or self.walking
+        ref = self.still_ref
+        if ref is not None:
+            p0, f0 = ref
+            if pos is not None and p0 is not None and distance(p0, pos) > float(n.get("still_pos_eps", 0.002)):
+                changed = True
+            if fac is not None and f0 is not None \
+                    and abs(math.degrees(angle_diff(fac, f0))) > float(n.get("still_face_deg", 1.0)):
+                changed = True
+        self.still_ref = (pos, fac)
+        if changed or self.still_since is None:
+            self.still_since = now
+
+    def _still_wait(self, obs, now):
+        """停稳规则：坐标、朝向连续不变 ≥ still_after_s 秒（也算上次点 s / 松开 w 的时间）。返回还要等的秒数（0 = 可以点）。"""
+        need = float(self._nc().get("still_after_s", 0.8))
+        t0 = max(self.still_since if self.still_since is not None else now,
+                 getattr(self, "halt_tap_t", -1e9), getattr(self, "walk_stop_t", -1e9))
+        return max(0.0, need - (now - t0))
+
+    @staticmethod
+    def _pc(p):
+        return p["x"] + p["w"] / 2, p["y"] + p["h"] / 2
+
+    def _aim_plate(self, obs, now, plates):
+        """盯住一个标记：连续两帧挪动 ≤ aim_stable_px 才点；一直在动 → 最多等 aim_max_wait_s 秒，按速度点它预计的位置。
+        返回要点的姓名板（中心已换成要点的位置）或 None（这一帧先不点）。"""
+        n = self._nc()
+        fw, fh = obs.frame_size
+        stable = float(n.get("aim_stable_px", 6))
+        maxw = float(n.get("aim_max_wait_s", 1.0))
+        link = float(n.get("aim_link_px", 90))
+        a = self.aim
+        if a is not None and now - a["t"] > 1.5:
+            a = self.aim = None
+        if a is None:
+            p = nearest_to(plates, fw / 2, fh / 2)
+            cx, cy = self._pc(p)
+            self.aim = {"t0": now, "t": now, "x": cx, "y": cy, "vx": 0.0, "vy": 0.0, "n": 1}
+            self.dlog(f"[姓名板] 停稳了，盯住标记 ({cx:.0f},{cy:.0f})（屏幕上能点的 {len(plates)} 个），下一帧看它动没动")
+            return None
+        dt = max(1e-3, now - a["t"])
+        px, py = a["x"] + a["vx"] * dt, a["y"] + a["vy"] * dt
+        q, d = None, 1e9
+        for p in plates:
+            cx, cy = self._pc(p)
+            dd = math.hypot(cx - px, cy - py)
+            if dd < d:
+                q, d = p, dd
+        if q is None or d > link:
+            self.dlog(f"[姓名板] 盯着的标记不见了（预计 ({px:.0f},{py:.0f})）→ 这次停下里换一个")
+            self.aim = None
+            return self._aim_plate(obs, now, plates) if plates else None
+        qx, qy = self._pc(q)
+        mv = math.hypot(qx - a["x"], qy - a["y"])
+        vx, vy = (qx - a["x"]) / dt, (qy - a["y"]) / dt
+        a.update(t=now, x=qx, y=qy, vx=vx, vy=vy, n=a["n"] + 1)
+        waited = now - a["t0"]
+        if mv <= stable:
+            vx = vy = 0.0
+            how = f"标记稳定（两帧挪 {mv:.0f}px）"
+        elif waited >= maxw:
+            how = f"标记一直在动（{math.hypot(vx, vy):.0f}px/秒），等了 {waited:.1f} 秒 → 点预计位置"
+        else:
+            return None
+        # 点前再截一张最新的图（有的话）：找预计位置附近的标记
+        fx, fy = qx, qy
+        peek = self.peek_plates
+        if peek is not None:
+            try:
+                fresh, _src = peek()
+                t1 = self.clock()
+                ex, ey = qx + vx * (t1 - now), qy + vy * (t1 - now)
+                best, bd = None, 1e9
+                for f in fresh or []:
+                    cx, cy = self._pc(f)
+                    dd = math.hypot(cx - ex, cy - ey)
+                    if dd < bd:
+                        best, bd = f, dd
+                tol = max(float(n.get("confirm_px", 25)), stable * 2)
+                if best is not None and bd <= tol:
+                    fx, fy = self._pc(best)
+                elif mv <= stable:
+                    self.dlog(f"[姓名板] 点前最新截图里 ({ex:.0f},{ey:.0f}) 附近没有标记（最近 {bd:.0f}px）→ 这次不点，重新盯")
+                    self.aim = None
+                    return None
+                else:
+                    fx, fy = ex, ey
+            except Exception as e:  # noqa: BLE001
+                self.dlog(f"[姓名板] 点前截图失败：{e} → 用这一帧的位置")
+        lead = float(n.get("aim_lead_s", 0.12))
+        fx, fy = fx + vx * lead, fy + vy * lead
+        self.aim = None
+        out = dict(q)
+        out["x"], out["y"] = fx - q["w"] / 2, fy - q["h"] / 2
+        out["_how"] = how
+        return out
 
     def _click_plate(self, p):
         n = self.cfg.get("nameplate", {})
@@ -498,7 +639,8 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             if p.get("kind") != "unselected":
                 continue
             cx, cy = p["x"] + p["w"] / 2, p["y"] + p["h"] / 2
-            if (cx < mx and cy < my) or cy > fh * 0.85 or self._is_bad(cx, cy, now):
+            if (cx < mx and cy < my) or cy > fh * 0.85 or self._is_bad(cx, cy, now) \
+                    or self._is_rejected(cx, cy, now, obs):        # v8.68：刚放弃的怪不点
                 continue
             if (cy < lim) != top:
                 continue
@@ -577,6 +719,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             self.click_pending = None
             self.click_fails = 0
             self.click_hit_t = now
+            self.fight_first_t = now     # v8.68：点它就是要先打它 → 有尸体没捡也不清掉
             self.dlog(f"[姓名板] 点 ({fx:.0f},{fy:.0f}) 后 {now - t:.1f} 秒选上了怪")
             return False
         if obs.target_kind == "none" and not obs.in_combat and now - t < float(self._nc().get("verify_s", 0.6)):
@@ -1388,6 +1531,7 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         self.last_obs = obs
         now = self.clock()
         self._ctx(f"状态 {self.state.value}")
+        self._still_track(obs, now)      # v8.68：记角色从什么时候起没动/没转
         if self.far is not None and (self.state != State.SEARCHING or obs.source != "addon"
                                      or getattr(obs, "game_menu", False)):
             self._far_end("状态变了/读不到插件", skip=False)
@@ -1730,18 +1874,35 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
         """v8.28 点姓名板标记：先停稳 → 右键间隔 → 点前确认 → 右键点 → 记下等 verify_s 秒确认。"""
         n = self.cfg.get("nameplate", {})
         if self._halt_first(obs, now):
+            self.aim = None
             return              # v8.28：先停下，停稳再点
         if str(n.get("click_button", "right")).lower() == "right" and self._rclick_wait(now):
             return              # v8.24：离上次右键不到 3 秒，先等
         fw, fh = obs.frame_size
-        p = self._confirm_plate(nearest_to(plates, fw / 2, fh / 2), now)
-        if p is None:
-            return              # v8.28：点前确认没通过，这次不点
+        how = ""
+        if n.get("still_click", True):
+            # v8.68（t264u）：硬规则——角色完全停住、视角不转，标记稳定了才点
+            wait = self._still_wait(obs, now)
+            if wait > 0:
+                self.aim = None
+                if now - self.still_log_t >= 5.0:
+                    self.still_log_t = now
+                    self.log(f"🧘 点标记前先停稳：角色没动、视角没转满 {float(n.get('still_after_s', 0.8)):.1f} 秒才点（还差 {wait:.1f} 秒）")
+                return
+            p = self._aim_plate(obs, now, plates)
+            if p is None:
+                return
+            how = p.pop("_how", "")
+        else:
+            p = self._confirm_plate(nearest_to(plates, fw / 2, fh / 2), now)
+            if p is None:
+                return              # v8.28：点前确认没通过，这次不点
         self._ctx("找怪：右键点姓名板标记")
         self._click_plate(p)
         self.click_pending = (p["x"] + p["w"] / 2, p["y"] + p["h"] / 2, self.clock())   # 从点完算起
         self.log(f"🖱️ 右键点{'插件标记' if p.get('from_marker') else '姓名板（模板）'}选怪 "
-                 f"({p['x'] + p['w'] / 2:.0f},{p['y'] + p['h'] / 2:.0f})，屏幕上能点的 {len(plates)} 个")
+                 f"({p['x'] + p['w'] / 2:.0f},{p['y'] + p['h'] / 2:.0f})，屏幕上能点的 {len(plates)} 个"
+                 + (f"（{how}）" if how else ""))
 
     # ------------------------------------------------------------ v8.32 非战斗看到怪就打
     def _plates_first(self) -> bool:
@@ -2000,6 +2161,9 @@ class Grinder(CorpseRunMixin, MultiBearMixin, TabSearchMixin, ReconnectMixin, Ma
             if now - max(self.pending_loot_t, self.rest_end_t) > expire:
                 self.log(f"💰 有 {self.pending_loot} 具尸体没捡，但已经过了 {expire:.0f} 秒（尸体可能没了），不捡了")
                 self.pending_loot = 0
+            elif self._alive(obs, dead_pct) and not self._aggro(obs) \
+                    and now - self.fight_first_t < float(self._nc().get("fight_first_keep_s", 8)):
+                return False            # v8.68：刚为了“先打”点选上的怪 → 不清掉，先打它，尸体打完再捡（14:19 来回 8 次）
             elif self._alive(obs, dead_pct) and not self._aggro(obs):
                 self.log("💰 脱战了，要捡尸体，先清掉选中的活怪（免得交互键去打它）")
                 self._clear_target(obs)

@@ -215,6 +215,7 @@ class Click828(Base):
     def setUp(self):
         super().setUp()
         self.cfg["nameplate"].update(copy.deepcopy(DEFAULT_CONFIG["nameplate"]))
+        self.cfg["nameplate"].update(still_click=False, reject_s=0, fight_first_keep_s=0)   # v8.68 前（新行为见 test_v868）
         self.cfg["buffs"]["enabled"] = False
         self.k.update(target_attacker="x")
         self.peeks = []

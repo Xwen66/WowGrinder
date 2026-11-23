@@ -113,6 +113,7 @@ class Base(unittest.TestCase):
         n.update(verify_s=0, bad_s=0, skip_top_pct=0, patrol_frames=1, far_names=False, stop_settle_s=0)
         # v8.50：旧测试用旧的找怪顺序（Tab → 标记 → 红名）、红名走路按 patrol_frames 停、不做“界面红名”检测（新行为见 test_v850）
         n.update(plates_first=False, far_click_frames=n["patrol_frames"], red_static_turns=0, red_walk_static_s=0, red_turn_static_deg=0)
+        n.update(still_click=False, reject_s=0, fight_first_keep_s=0)   # v8.68：旧测试点标记不等停稳、不记放弃的怪（新行为见 test_v868）
         self.cfg["tab_search"]["far_walk_tab"] = True
         # v8.54：旧测试 Tab 不暂停、中心不跳过（新行为见 test_v854）
         self.cfg["tab_search"]["miss_limit"] = 0

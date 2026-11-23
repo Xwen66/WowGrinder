@@ -109,6 +109,9 @@ class BotRunner:
         dlog(f"v8.28 找怪：插件 v0.11 标记={'开' if nc0.get('use_enemy_markers', True) else '关'} 顶部 {nc0.get('skip_top_pct', 23)}% 不点 "
              f"先停稳 {nc0.get('stop_settle_s', 0.3)}s 点前确认 {nc0.get('confirm_px', 25)}px 点后验证 {nc0.get('verify_s', 0.6)}s "
              f"点空拉黑 {nc0.get('bad_s', 8)}s 巡逻连续 {nc0.get('patrol_frames', 2)} 帧 远处红名={'开' if nc0.get('far_names', True) else '关'}")
+        dlog(f"v8.68 点找怪标记：停稳不转视角={'开' if nc0.get('still_click', True) else '关'}（没动没转 {nc0.get('still_after_s', 0.8)}s，"
+             f"标记两帧 ≤{nc0.get('aim_stable_px', 6)}px，最多等 {nc0.get('aim_max_wait_s', 1.0)}s 点预计位置）"
+             f" 放弃的怪 {nc0.get('reject_s', 15)}s 不点（{nc0.get('reject_px', 90)}px） 点选上的怪 {nc0.get('fight_first_keep_s', 8)}s 内不为捡尸清掉")
         ts0 = cfg.get("tab_search", {})
         dlog(f"v8.40 Tab 找怪={'开' if ts0.get('enabled', True) else '关'}（键「{cfg['keys'].get('target') or 'tab'}」，要插件 v0.13）"
              f" 移动中也按={'开' if ts0.get('while_moving', True) else '关'}（每 {ts0.get('move_interval_s', 1.8)} 秒）"
